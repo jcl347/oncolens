@@ -194,9 +194,28 @@ class Ledger:
     def dev_draws(self) -> int:
         return sum(1 for e in self.entries if e["split"] == "dev")
 
-    def adjusted_alpha(self, base_alpha: float = 0.05) -> float:
-        """Bonferroni over the number of dev draws taken so far (floor of 1 draw)."""
-        return base_alpha / max(1, self.dev_draws)
+    def adjusted_alpha(self, base_alpha: float = 0.05, family_size: int | None = None) -> float:
+        """Bonferroni-corrected significance threshold.
+
+        **Which family to correct over is a real methodological choice, not a detail.**
+
+        Correcting over *every* dev draw ever taken is the most conservative option, but in
+        a ten-round ladder it drives alpha to 0.05/38 ~ 0.0013 by the final round. At the
+        sample sizes available here that guarantees Type II errors: genuine improvements get
+        rejected because the loop has been thorough. Trading a flood of false positives for
+        a flood of false negatives is not rigour.
+
+        So correction is applied **within an iteration** (the family of challengers actually
+        compared against the same champion on the same data), which is the standard IR
+        treatment. Protection against *cumulative* overfitting across iterations comes from
+        a different and stronger mechanism: the locked test split, opened once, with the
+        dev/test gap reported as the estimate of how much of the gain was fitted.
+
+        ``dev_draws`` is still recorded and reported as search intensity, because a
+        test-set result must be read in light of how many draws produced it.
+        """
+        n = family_size if family_size is not None else max(1, self.dev_draws)
+        return base_alpha / max(1, n)
 
 
 def detectable_effect(n_queries: int, sd: float, alpha: float = 0.05, power: float = 0.8) -> float:

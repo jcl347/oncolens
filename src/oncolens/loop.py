@@ -132,7 +132,8 @@ def run_iteration(
         res.save()
         results[cfg.name] = res
         ledger.record(iteration=iteration, config_name=cfg.name, split=split, primary=res.primary)
-        gate = evaluate_gate(base_res.per_query, res.per_query, strata, ledger)
+        gate = evaluate_gate(base_res.per_query, res.per_query, strata, ledger,
+                             family_size=len(challengers))
         gates[cfg.name] = gate
         if gate.promoted:
             promoted.append(cfg.name)

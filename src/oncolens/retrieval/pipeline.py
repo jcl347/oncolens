@@ -20,6 +20,8 @@ from .dense import DenseIndex, LsaBackend
 from .expansion import Lexicon
 from .fusion import aggregate_chunks_to_docs, reciprocal_rank_fusion, score_fusion
 from .lexical import BM25Index
+from .rerank import RerankWeights
+from .rerank import rerank as rerank_candidates
 from .text import tokenize
 
 
@@ -54,6 +56,16 @@ class RetrievalConfig:
     exp_max_variants: int = 4
     exp_max_total: int = 24
     exp_apply_to: str = "bm25"         # "bm25" | "both"
+
+    # --- reranking (second stage over the fused candidates) ---
+    rerank: bool = False
+    rerank_depth: int = 100
+    rr_coverage: float = 1.0
+    rr_proximity: float = 0.5
+    rr_phrase: float = 1.0
+    rr_literal: float = 1.0
+    rr_section: float = 0.25
+    rr_base: float = 1.0
 
     # --- chunk -> doc aggregation ---
     chunk_agg: str = "max"             # "max" | "sum" | "mean" | "topn_decay"
@@ -172,6 +184,19 @@ class Retriever:
             fused = reciprocal_rank_fusion(runs, k=cfg.rrf_k, weights=weights)
         else:
             fused = score_fusion(runs, weights=weights)
+
+        # Second stage: rerank the fused head before collapsing to documents, so the
+        # passage-level features act while passage identity still exists.
+        if cfg.rerank and cfg.index_unit == "chunk":
+            fused = rerank_candidates(
+                query, fused, self.chunk_by_id,
+                weights=RerankWeights(
+                    coverage=cfg.rr_coverage, proximity=cfg.rr_proximity,
+                    phrase=cfg.rr_phrase, literal=cfg.rr_literal,
+                    section=cfg.rr_section, base=cfg.rr_base,
+                ),
+                depth=cfg.rerank_depth,
+            )
 
         doc_ranked = (
             aggregate_chunks_to_docs(

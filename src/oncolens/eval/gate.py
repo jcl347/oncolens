@@ -96,9 +96,14 @@ def evaluate_gate(
     ledger: st.Ledger,
     *,
     base_alpha: float = 0.05,
+    family_size: int | None = None,
 ) -> GateResult:
-    """Run every gate rule and return a decision with a full audit trail."""
-    alpha = ledger.adjusted_alpha(base_alpha)
+    """Run every gate rule and return a decision with a full audit trail.
+
+    ``family_size`` is the number of challengers compared against this champion in this
+    iteration; Bonferroni is applied within that family. See ``Ledger.adjusted_alpha``.
+    """
+    alpha = ledger.adjusted_alpha(base_alpha, family_size=family_size)
     res = GateResult(promoted=False, alpha_used=alpha)
 
     # --- Rule 1: primary metric, significance at adjusted alpha -------------
@@ -115,7 +120,8 @@ def evaluate_gate(
     elif not primary.significant_at(alpha):
         res.blockers.append(
             f"{PRIMARY} improved (delta={primary.delta:+.4f}) but p={primary.p_value:.4f} "
-            f">= adjusted alpha {alpha:.5f} after {ledger.dev_draws} dev draws"
+            f">= family-adjusted alpha {alpha:.5f} "
+            f"(family of {family_size or ledger.dev_draws}; {ledger.dev_draws} dev draws so far)"
         )
     else:
         res.reasons.append(

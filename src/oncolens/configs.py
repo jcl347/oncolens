@@ -103,6 +103,38 @@ def iteration_8_abstention(champ: RetrievalConfig) -> list[RetrievalConfig]:
     ]
 
 
+def iteration_9_rerank(champ: RetrievalConfig) -> list[RetrievalConfig]:
+    """Second-stage reranking — the literature's largest reported single gain.
+
+    Split into ablations rather than one all-features config, so a gain can be attributed
+    to a feature instead of to "reranking" as an undifferentiated blob.
+    """
+    return [
+        champ.variant("i9_rr_all", rerank=True),
+        champ.variant("i9_rr_coverage_only", rerank=True,
+                      rr_proximity=0.0, rr_phrase=0.0, rr_literal=0.0, rr_section=0.0),
+        champ.variant("i9_rr_no_section", rerank=True, rr_section=0.0),
+        champ.variant("i9_rr_literal_heavy", rerank=True, rr_literal=2.0),
+        champ.variant("i9_rr_shallow", rerank=True, rerank_depth=30),
+    ]
+
+
+def iteration_10_joint(champ: RetrievalConfig) -> list[RetrievalConfig]:
+    """Interaction check.
+
+    Knobs tuned one family at a time can interact — expansion adds recall that reranking
+    must then sort, and abstention interacts with both. Greedy hill-climbing never revisits
+    those combinations, so this round tests the two or three that plausibly compound.
+    """
+    return [
+        champ.variant("i10_rerank_plus_expansion", rerank=True, expansion="lexicon",
+                      exp_apply_to="bm25", exp_max_variants=3, exp_max_total=16),
+        champ.variant("i10_rerank_plus_decay", rerank=True, chunk_agg="topn_decay"),
+        champ.variant("i10_wider_candidates", rerank=True, candidates_per_arm=400,
+                      rerank_depth=150),
+    ]
+
+
 LADDER = [
     ("arms", iteration_1_arms),
     ("fusion", iteration_2_fusion),
@@ -112,4 +144,6 @@ LADDER = [
     ("indexing", iteration_6_indexing),
     ("bm25_params", iteration_7_bm25_params),
     ("abstention", iteration_8_abstention),
+    ("rerank", iteration_9_rerank),
+    ("joint", iteration_10_joint),
 ]

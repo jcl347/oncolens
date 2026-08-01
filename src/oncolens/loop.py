@@ -176,6 +176,37 @@ def run_iteration(
     else:
         lines += ["**No challenger cleared the gate — champion unchanged.**", ""]
 
+    # Close the feedback loop: diagnose the *new* champion's remaining failures so the
+    # next iteration is chosen from evidence rather than from the ladder's default order.
+    from .analysis import analyze_run, compare_queries
+
+    champ_res = results[new_champion.name]
+    analysis = analyze_run(ds, champ_res.per_query, champ_res.runs, cache.get(new_champion), split=split)
+    lines += ["## Failure analysis (current champion)", "", "```"]
+    lines += [f"failure modes: {analysis['failure_mode_counts']}"]
+    for stratum, modes in sorted(analysis["failure_modes_by_stratum"].items()):
+        lines.append(f"  {stratum}: {modes}")
+    lines += ["```", "", "**Next hypotheses, ranked by observed failure mode:**", ""]
+    lines += [f"- {h}" for h in analysis["next_hypothesis"]] or ["- (no dominant failure mode)"]
+    lines += [""]
+
+    if new_champion.name != champion_cfg.name:
+        cmp = compare_queries(ds, base_res.per_query, champ_res.per_query, split=split)
+        lines += [
+            "### What the promotion traded away", "",
+            f"improved {cmp['n_improved']} / degraded {cmp['n_degraded']} / unchanged {cmp['n_unchanged']}",
+            "",
+        ]
+        if cmp["biggest_losses"] and cmp["biggest_losses"][0]["delta"] < -1e-9:
+            lines += ["Largest regressions (these are real, even though the gate passed):", ""]
+            for d in cmp["biggest_losses"][:5]:
+                if d["delta"] < -1e-9:
+                    lines.append(
+                        f"- `{d['query_id']}` [{d['stratum']}] {d['a']:.3f} -> {d['b']:.3f} "
+                        f"({d['delta']:+.3f}) — {d['query'][:70]}"
+                    )
+            lines += [""]
+
     gaps = pool_gaps(list(results.values()), ds, depth=10)
     if gaps:
         n = sum(len(v) for v in gaps.values())

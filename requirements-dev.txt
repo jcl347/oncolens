@@ -1,0 +1,6 @@
+# Offline harness + ingestion. Never deployed to Vercel.
+numpy>=1.26
+scipy>=1.11
+requests>=2.31
+# Optional, for the Postgres/pgvector serving path:
+# psycopg[binary]>=3.1

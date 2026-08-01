@@ -1,0 +1,5 @@
+# Vercel serverless runtime dependencies ONLY.
+# scipy is deliberately absent: the SVD is fitted at build time and only the fitted
+# matrices ship in the artifact. Keeping scipy out is what keeps the bundle and cold
+# start within Vercel's limits.
+numpy>=1.26

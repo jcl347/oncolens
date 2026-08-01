@@ -1,0 +1,1382 @@
+{
+  "abcb1": [
+    "MDR1",
+    "P-glycoprotein",
+    "P-gp",
+    "PGY1",
+    "CD243"
+  ],
+  "abemaciclib": [
+    "LY2835219",
+    "Verzenio",
+    "Verzenios"
+  ],
+  "abiraterone": [
+    "CB7630",
+    "Zytiga",
+    "abiraterone acetate",
+    "CYP17 inhibitor"
+  ],
+  "acquired resistance": [
+    "secondary resistance",
+    "treatment-acquired resistance",
+    "resistance on therapy",
+    "primary resistance"
+  ],
+  "adagrasib": [
+    "MRTX849",
+    "Krazati"
+  ],
+  "adenosine signaling": [
+    "adenosinergic signaling",
+    "CD39-CD73-adenosine axis",
+    "A2A receptor signaling",
+    "extracellular adenosine"
+  ],
+  "adjuvant therapy": [
+    "post-operative therapy",
+    "adjuvant treatment",
+    "post-surgical therapy"
+  ],
+  "adverse event": [
+    "AE",
+    "toxicity",
+    "treatment-emergent adverse event",
+    "side effect"
+  ],
+  "afatinib": [
+    "BIBW2992",
+    "Gilotrif",
+    "Giotrif",
+    "second-generation EGFR TKI"
+  ],
+  "akt": [
+    "protein kinase B",
+    "PKB",
+    "AKT1",
+    "RAC-alpha serine/threonine-protein kinase"
+  ],
+  "alectinib": [
+    "CH5424802",
+    "RO5424802",
+    "Alecensa",
+    "second-generation ALK inhibitor"
+  ],
+  "alemtuzumab": [
+    "Campath",
+    "Campath-1H",
+    "Lemtrada",
+    "anti-CD52 antibody"
+  ],
+  "alk": [
+    "anaplastic lymphoma kinase",
+    "CD246",
+    "ALK receptor tyrosine kinase"
+  ],
+  "alk inhibitor": [
+    "ALK TKI",
+    "anaplastic lymphoma kinase inhibitor",
+    "ALK-directed therapy"
+  ],
+  "all": [
+    "acute lymphoblastic leukemia",
+    "acute lymphocytic leukemia",
+    "B-ALL",
+    "B-cell acute lymphoblastic leukemia"
+  ],
+  "alpelisib": [
+    "BYL719",
+    "BYL-719",
+    "Piqray",
+    "PI3K alpha inhibitor"
+  ],
+  "amivantamab": [
+    "JNJ-61186372",
+    "Rybrevant",
+    "amivantamab-vmjw",
+    "EGFR-MET bispecific antibody"
+  ],
+  "aml": [
+    "acute myeloid leukemia",
+    "acute myelogenous leukemia",
+    "acute myeloblastic leukemia"
+  ],
+  "anastrozole": [
+    "ZD1033",
+    "Arimidex",
+    "aromatase inhibitor"
+  ],
+  "antibody-drug conjugate": [
+    "ADC",
+    "antibody drug conjugate",
+    "immunoconjugate",
+    "armed antibody"
+  ],
+  "antigen presentation": [
+    "antigen processing and presentation",
+    "MHC class I presentation",
+    "peptide-MHC presentation"
+  ],
+  "apoe": [
+    "apolipoprotein E",
+    "APO-E"
+  ],
+  "apoptosis": [
+    "programmed cell death",
+    "caspase-dependent cell death",
+    "type I cell death"
+  ],
+  "aromatase inhibitor": [
+    "AI",
+    "aromatase inhibition",
+    "CYP19A1 inhibitor"
+  ],
+  "ascl1": [
+    "achaete-scute homolog 1",
+    "MASH1",
+    "HASH1",
+    "ASH1"
+  ],
+  "astct": [
+    "American Society for Transplantation and Cellular Therapy",
+    "ASTCT consensus grading"
+  ],
+  "atezolizumab": [
+    "MPDL3280A",
+    "Tecentriq",
+    "anti-PD-L1 antibody"
+  ],
+  "axicabtagene ciloleucel": [
+    "axi-cel",
+    "KTE-C19",
+    "Yescarta",
+    "CD19 CAR T"
+  ],
+  "b2m": [
+    "beta-2 microglobulin",
+    "beta2-microglobulin",
+    "B2-M",
+    "IMD43"
+  ],
+  "base editing": [
+    "base editor",
+    "cytosine base editing",
+    "adenine base editing"
+  ],
+  "bcma": [
+    "TNFRSF17",
+    "B-cell maturation antigen",
+    "CD269",
+    "BCM"
+  ],
+  "bcr-abl": [
+    "BCR::ABL1",
+    "Philadelphia chromosome",
+    "t(9;22)",
+    "BCR-ABL1 fusion"
+  ],
+  "bispecific t-cell engager": [
+    "BiTE",
+    "T-cell engager",
+    "bispecific antibody",
+    "CD3 bispecific"
+  ],
+  "blinatumomab": [
+    "AMG 103",
+    "MT103",
+    "Blincyto",
+    "CD19xCD3 bispecific"
+  ],
+  "braf": [
+    "B-Raf",
+    "BRAF1",
+    "v-raf murine sarcoma viral oncogene homolog B"
+  ],
+  "brain metastasis": [
+    "CNS metastasis",
+    "brain met",
+    "cerebral metastasis",
+    "intracranial metastasis"
+  ],
+  "brca1": [
+    "breast cancer type 1 susceptibility protein",
+    "BRCAI",
+    "RNF53",
+    "BRCA1 DNA repair associated"
+  ],
+  "brigatinib": [
+    "AP26113",
+    "AP-26113",
+    "Alunbrig"
+  ],
+  "bypass signaling": [
+    "bypass track activation",
+    "bypass pathway activation",
+    "alternative pathway activation",
+    "kinase switching"
+  ],
+  "c1qc": [
+    "complement C1q C chain",
+    "C1Q-C"
+  ],
+  "c797s": [
+    "EGFR C797S",
+    "p.C797S",
+    "cysteine-797-serine",
+    "covalent-binding site mutation"
+  ],
+  "capivasertib": [
+    "AZD5363",
+    "Truqap",
+    "AKT inhibitor"
+  ],
+  "capmatinib": [
+    "INC280",
+    "INCB28060",
+    "Tabrecta"
+  ],
+  "car t cell therapy": [
+    "CAR-T",
+    "chimeric antigen receptor T cell therapy",
+    "CAR T cells",
+    "CAR-T therapy",
+    "adoptive cell therapy",
+    "bispecific T-cell engager"
+  ],
+  "carboplatin": [
+    "Paraplatin",
+    "CBDCA",
+    "platinum agent"
+  ],
+  "ccne1": [
+    "cyclin E1",
+    "cyclin E",
+    "CCNE"
+  ],
+  "cd19": [
+    "B-lymphocyte antigen CD19",
+    "B4",
+    "CVID3",
+    "CD-19"
+  ],
+  "cd274": [
+    "PD-L1",
+    "B7-H1",
+    "programmed death ligand 1"
+  ],
+  "cd3": [
+    "CD3 complex",
+    "T cell receptor complex",
+    "CD3e"
+  ],
+  "cd34": [
+    "CD34 antigen",
+    "hematopoietic progenitor cell antigen CD34"
+  ],
+  "cd39": [
+    "ENTPD1",
+    "ectonucleoside triphosphate diphosphohydrolase 1",
+    "NTPDase1",
+    "CD73"
+  ],
+  "cd4": [
+    "CD4+ T cell",
+    "helper T cell",
+    "T helper cell"
+  ],
+  "cd8": [
+    "CD8+ T cell",
+    "cytotoxic T lymphocyte",
+    "CTL",
+    "CD8 alpha"
+  ],
+  "cdk2": [
+    "cyclin dependent kinase 2",
+    "CDK-2",
+    "p33"
+  ],
+  "cdk4": [
+    "cyclin dependent kinase 4",
+    "CDK-4",
+    "PSK-J3"
+  ],
+  "cdk4/6 inhibitor": [
+    "CDK4/6i",
+    "CDK 4/6 inhibitor",
+    "cyclin-dependent kinase 4/6 inhibitor",
+    "CDK2 inhibitor",
+    "cell cycle inhibitor"
+  ],
+  "cdk6": [
+    "cyclin dependent kinase 6",
+    "CDK-6",
+    "PLSTIRE"
+  ],
+  "cdkn1a": [
+    "p21",
+    "p21Cip1",
+    "WAF1",
+    "CIP1",
+    "CAP20"
+  ],
+  "cdkn2a": [
+    "p16",
+    "p16INK4a",
+    "INK4A",
+    "MTS1",
+    "CDKN2",
+    "ARF"
+  ],
+  "cell cycle arrest": [
+    "G1 arrest",
+    "cell cycle blockade",
+    "proliferative arrest"
+  ],
+  "cemiplimab": [
+    "REGN2810",
+    "Libtayo",
+    "cemiplimab-rwlc"
+  ],
+  "cerebrospinal fluid": [
+    "CSF",
+    "spinal fluid"
+  ],
+  "cervical cancer screening": [
+    "Pap smear",
+    "Papanicolaou test",
+    "cervical cytology",
+    "HPV co-testing"
+  ],
+  "cfdna": [
+    "cell-free DNA",
+    "cell free DNA",
+    "plasma DNA"
+  ],
+  "checkpoint inhibitor": [
+    "immune checkpoint inhibitor",
+    "ICI",
+    "checkpoint blockade",
+    "immune checkpoint blockade",
+    "CAR T cell therapy"
+  ],
+  "chimeric antigen receptor": [
+    "CAR",
+    "CAR construct",
+    "chimeric antigen receptor construct"
+  ],
+  "ciltacabtagene autoleucel": [
+    "cilta-cel",
+    "JNJ-4528",
+    "LCAR-B38M",
+    "Carvykti"
+  ],
+  "clonal evolution": [
+    "tumor evolution",
+    "subclonal evolution",
+    "branched evolution",
+    "clonal selection"
+  ],
+  "clonal hematopoiesis": [
+    "CH",
+    "CHIP",
+    "clonal hematopoiesis of indeterminate potential",
+    "age-related clonal hematopoiesis",
+    "myelodysplastic syndrome"
+  ],
+  "complete response": [
+    "CR",
+    "complete remission",
+    "complete radiographic response"
+  ],
+  "crbn": [
+    "cereblon",
+    "CRBN E3 ligase",
+    "cereblon E3 ubiquitin ligase"
+  ],
+  "crispr": [
+    "CRISPR-Cas9",
+    "Cas9 editing",
+    "clustered regularly interspaced short palindromic repeats"
+  ],
+  "crispr screen": [
+    "genome-wide CRISPR screen",
+    "CRISPR knockout screen",
+    "sgRNA screen"
+  ],
+  "crizotinib": [
+    "PF-02341066",
+    "Xalkori",
+    "first-generation ALK inhibitor",
+    "ALK/ROS1 inhibitor"
+  ],
+  "crs": [
+    "cytokine release syndrome",
+    "cytokine storm",
+    "CRS grading",
+    "ICANS"
+  ],
+  "ctcae": [
+    "Common Terminology Criteria for Adverse Events",
+    "CTCAE v5.0",
+    "NCI CTCAE"
+  ],
+  "ctdna": [
+    "circulating tumor DNA",
+    "circulating tumour DNA",
+    "plasma tumor DNA",
+    "cfDNA",
+    "circulating tumor cells"
+  ],
+  "ctla-4": [
+    "CTLA4",
+    "cytotoxic T-lymphocyte-associated protein 4",
+    "CD152"
+  ],
+  "ctla-4 inhibitor": [
+    "anti-CTLA-4",
+    "CTLA-4 blockade",
+    "anti-CTLA-4 antibody"
+  ],
+  "cul4a": [
+    "cullin 4A",
+    "CUL-4A"
+  ],
+  "cxcl10": [
+    "IP-10",
+    "interferon gamma-induced protein 10",
+    "C-X-C motif chemokine ligand 10"
+  ],
+  "cxcl8": [
+    "IL-8",
+    "interleukin 8",
+    "C-X-C motif chemokine ligand 8"
+  ],
+  "cxcl9": [
+    "MIG",
+    "monokine induced by gamma interferon",
+    "C-X-C motif chemokine ligand 9"
+  ],
+  "cyp19a1": [
+    "aromatase",
+    "CYP19",
+    "estrogen synthase"
+  ],
+  "cytokine release syndrome": [
+    "CRS",
+    "cytokine storm",
+    "infusion-related cytokine toxicity"
+  ],
+  "d538g": [
+    "ESR1 D538G",
+    "p.D538G",
+    "aspartate-538-glycine"
+  ],
+  "dc50": [
+    "half maximal degradation concentration",
+    "DC-50",
+    "50% degradation concentration"
+  ],
+  "ddb1": [
+    "damage specific DNA binding protein 1",
+    "XAP1",
+    "UV-DDB1"
+  ],
+  "dlbcl": [
+    "diffuse large B-cell lymphoma",
+    "diffuse large B cell lymphoma",
+    "large B-cell lymphoma"
+  ],
+  "drug efflux": [
+    "efflux pump activity",
+    "P-glycoprotein-mediated efflux",
+    "transporter-mediated efflux"
+  ],
+  "durvalumab": [
+    "MEDI4736",
+    "Imfinzi",
+    "anti-PD-L1 antibody"
+  ],
+  "ecog": [
+    "ECOG performance status",
+    "Eastern Cooperative Oncology Group performance status",
+    "ECOG PS"
+  ],
+  "egfr": [
+    "ERBB1",
+    "HER1",
+    "ERBB-1",
+    "epidermal growth factor receptor",
+    "c-erbB-1"
+  ],
+  "egfr tki": [
+    "EGFR tyrosine kinase inhibitor",
+    "EGFR inhibitor",
+    "anti-EGFR TKI",
+    "EGFR-directed therapy",
+    "tyrosine kinase inhibitor",
+    "ALK inhibitor"
+  ],
+  "elacestrant": [
+    "RAD1901",
+    "Orserdu",
+    "elacestrant dihydrochloride"
+  ],
+  "elranatamab": [
+    "PF-06863135",
+    "Elrexfio",
+    "elranatamab-bcmm"
+  ],
+  "endocrine therapy": [
+    "hormonal therapy",
+    "anti-estrogen therapy",
+    "endocrine treatment",
+    "hormone therapy",
+    "CDK4/6 inhibitor"
+  ],
+  "enzalutamide": [
+    "MDV3100",
+    "Xtandi",
+    "androgen receptor inhibitor"
+  ],
+  "erbb2": [
+    "HER2",
+    "HER-2",
+    "HER2/neu",
+    "neu",
+    "CD340",
+    "c-erbB-2"
+  ],
+  "erbb3": [
+    "HER3",
+    "c-erbB-3",
+    "HER-3"
+  ],
+  "erk": [
+    "extracellular signal-regulated kinase",
+    "MAPK",
+    "p44/42 MAPK",
+    "ERK1/2"
+  ],
+  "erlotinib": [
+    "OSI-774",
+    "Tarceva",
+    "first-generation EGFR TKI",
+    "EGFR TKI"
+  ],
+  "esr1": [
+    "estrogen receptor 1",
+    "estrogen receptor alpha",
+    "ER-alpha",
+    "NR3A1"
+  ],
+  "estrogen receptor": [
+    "ER",
+    "ESR1",
+    "ER-alpha",
+    "oestrogen receptor"
+  ],
+  "exon 19 deletion": [
+    "ex19del",
+    "exon 19 del",
+    "EGFR exon 19 deletion",
+    "del19"
+  ],
+  "exon 20 insertion": [
+    "ex20ins",
+    "EGFR exon 20 insertion",
+    "exon 20 ins"
+  ],
+  "ferroptosis": [
+    "iron-dependent cell death",
+    "lipid peroxidation-driven cell death",
+    "apoptosis"
+  ],
+  "flow cytometry": [
+    "FACS",
+    "fluorescence-activated cell sorting",
+    "cytometry"
+  ],
+  "fmc63": [
+    "FMC63 scFv",
+    "FMC-63",
+    "murine anti-CD19 scFv"
+  ],
+  "fulvestrant": [
+    "ICI 182780",
+    "ICI-182,780",
+    "Faslodex",
+    "selective estrogen receptor degrader"
+  ],
+  "g12c": [
+    "KRAS G12C",
+    "p.G12C",
+    "glycine-12-cysteine"
+  ],
+  "gefitinib": [
+    "ZD1839",
+    "Iressa",
+    "first-generation EGFR TKI"
+  ],
+  "glioblastoma": [
+    "GBM",
+    "glioblastoma multiforme",
+    "grade IV astrocytoma",
+    "WHO grade 4 glioma"
+  ],
+  "gprc5d": [
+    "G protein-coupled receptor class C group 5 member D",
+    "GPRC-5D",
+    "RAIG4"
+  ],
+  "gpx4": [
+    "glutathione peroxidase 4",
+    "PHGPx",
+    "GSHPx-4"
+  ],
+  "havcr2": [
+    "TIM-3",
+    "TIM3",
+    "hepatitis A virus cellular receptor 2",
+    "CD366"
+  ],
+  "health disparities": [
+    "disparities in care",
+    "inequities in cancer care",
+    "differential access to care"
+  ],
+  "helicobacter pylori": [
+    "H. pylori",
+    "Campylobacter pylori",
+    "HP infection"
+  ],
+  "hematopoietic stem cell transplant": [
+    "HSCT",
+    "stem cell transplant",
+    "bone marrow transplant",
+    "allogeneic transplant",
+    "BMT"
+  ],
+  "her2": [
+    "ERBB2",
+    "HER-2/neu",
+    "CD340",
+    "EGFR"
+  ],
+  "her3": [
+    "ERBB3",
+    "c-erbB-3"
+  ],
+  "hif1a": [
+    "HIF-1 alpha",
+    "hypoxia inducible factor 1 subunit alpha",
+    "HIF1-alpha"
+  ],
+  "hla": [
+    "human leukocyte antigen",
+    "MHC",
+    "major histocompatibility complex"
+  ],
+  "hormone receptor positive": [
+    "HR+",
+    "HR-positive",
+    "ER-positive",
+    "hormone-receptor-positive",
+    "estrogen receptor positive"
+  ],
+  "hypogammaglobulinemia": [
+    "low immunoglobulin",
+    "immunoglobulin deficiency",
+    "humoral immune deficiency"
+  ],
+  "ic50": [
+    "half maximal inhibitory concentration",
+    "IC-50",
+    "50% inhibitory concentration"
+  ],
+  "icans": [
+    "immune effector cell-associated neurotoxicity syndrome",
+    "neurotoxicity",
+    "CAR-T neurotoxicity",
+    "CRES"
+  ],
+  "idecabtagene vicleucel": [
+    "ide-cel",
+    "bb2121",
+    "Abecma"
+  ],
+  "idh1": [
+    "isocitrate dehydrogenase 1",
+    "IDH-1",
+    "isocitrate dehydrogenase (NADP(+)) 1"
+  ],
+  "imatinib": [
+    "STI571",
+    "CGP57148B",
+    "Gleevec",
+    "Glivec",
+    "imatinib mesylate"
+  ],
+  "immune checkpoint blockade": [
+    "ICB",
+    "checkpoint blockade",
+    "immune checkpoint inhibition"
+  ],
+  "immune evasion": [
+    "immune escape",
+    "immune editing",
+    "evasion of immune surveillance",
+    "tumor immune escape"
+  ],
+  "immune-related adverse event": [
+    "irAE",
+    "immune-mediated adverse event",
+    "checkpoint inhibitor toxicity"
+  ],
+  "immunohistochemistry": [
+    "IHC",
+    "immunostaining",
+    "immunoperoxidase staining"
+  ],
+  "immunotherapy": [
+    "immune therapy",
+    "immuno-oncology therapy",
+    "cancer immunotherapy",
+    "chemotherapy",
+    "biologic therapy"
+  ],
+  "infliximab": [
+    "Remicade",
+    "cA2",
+    "anti-TNF antibody"
+  ],
+  "interferon signaling": [
+    "IFN signaling",
+    "interferon-gamma pathway",
+    "IFN-gamma response",
+    "JAK-STAT signaling"
+  ],
+  "interobserver agreement": [
+    "inter-rater agreement",
+    "interrater reliability",
+    "concordance between readers"
+  ],
+  "interstitial lung disease": [
+    "ILD",
+    "pneumonitis",
+    "drug-induced pneumonitis"
+  ],
+  "intracranial activity": [
+    "CNS activity",
+    "brain metastasis activity",
+    "central nervous system efficacy"
+  ],
+  "intrinsic resistance": [
+    "primary resistance",
+    "de novo resistance",
+    "innate resistance"
+  ],
+  "ipilimumab": [
+    "MDX-010",
+    "BMS-734016",
+    "Yervoy",
+    "anti-CTLA-4 antibody"
+  ],
+  "irae": [
+    "immune-related adverse event",
+    "immune related toxicity",
+    "irAEs"
+  ],
+  "ivosidenib": [
+    "AG-120",
+    "AG120",
+    "Tibsovo",
+    "IDH1 inhibitor"
+  ],
+  "jak1": [
+    "Janus kinase 1",
+    "JAK-1",
+    "JTK3"
+  ],
+  "kaplan-meier": [
+    "Kaplan Meier estimator",
+    "KM curve",
+    "product-limit estimator"
+  ],
+  "kras": [
+    "KRAS2",
+    "K-ras",
+    "KI-RAS",
+    "c-K-ras",
+    "Kirsten rat sarcoma viral oncogene homolog"
+  ],
+  "kras g12c inhibitor": [
+    "KRAS G12C-directed therapy",
+    "covalent KRAS inhibitor",
+    "G12C inhibitor"
+  ],
+  "l858r": [
+    "EGFR L858R",
+    "exon 21 L858R",
+    "p.L858R"
+  ],
+  "lag3": [
+    "LAG-3",
+    "lymphocyte activation gene 3",
+    "CD223"
+  ],
+  "lazertinib": [
+    "YH25448",
+    "JNJ-73841937",
+    "Lazcluze",
+    "Leclaza"
+  ],
+  "letrozole": [
+    "CGS 20267",
+    "Femara",
+    "aromatase inhibitor"
+  ],
+  "lineage plasticity": [
+    "histologic transformation",
+    "phenotypic plasticity",
+    "cell state transition",
+    "transdifferentiation"
+  ],
+  "lorlatinib": [
+    "PF-06463922",
+    "Lorbrena",
+    "Lorviqua",
+    "third-generation ALK inhibitor"
+  ],
+  "lsd1": [
+    "KDM1A",
+    "lysine-specific demethylase 1",
+    "AOF2",
+    "BHC110"
+  ],
+  "lung adenocarcinoma": [
+    "adenocarcinoma of the lung",
+    "LUAD",
+    "pulmonary adenocarcinoma"
+  ],
+  "macrophage polarization": [
+    "M1/M2 polarization",
+    "macrophage phenotype switching",
+    "tumor-associated macrophage programming"
+  ],
+  "mapk pathway": [
+    "RAS-RAF-MEK-ERK pathway",
+    "MAP kinase pathway",
+    "ERK pathway"
+  ],
+  "marco": [
+    "macrophage receptor with collagenous structure",
+    "SCARA2"
+  ],
+  "medicaid": [
+    "Medicaid coverage",
+    "public insurance",
+    "state Medicaid program"
+  ],
+  "melanoma": [
+    "cutaneous melanoma",
+    "malignant melanoma",
+    "skin melanoma"
+  ],
+  "met": [
+    "c-Met",
+    "MET proto-oncogene",
+    "HGFR",
+    "hepatocyte growth factor receptor"
+  ],
+  "met amplification": [
+    "MET copy number gain",
+    "MET amp",
+    "c-Met amplification",
+    "MET gene amplification"
+  ],
+  "met inhibitor": [
+    "MET TKI",
+    "c-Met inhibitor",
+    "MET-directed therapy"
+  ],
+  "mhc": [
+    "major histocompatibility complex",
+    "HLA",
+    "histocompatibility antigen"
+  ],
+  "minimal residual disease": [
+    "MRD",
+    "measurable residual disease",
+    "residual disease burden"
+  ],
+  "mki67": [
+    "Ki-67",
+    "Ki67",
+    "MIB-1",
+    "proliferation index"
+  ],
+  "mrd": [
+    "minimal residual disease",
+    "measurable residual disease",
+    "MRD negativity",
+    "ctDNA"
+  ],
+  "msi-h": [
+    "microsatellite instability-high",
+    "MSI-High",
+    "dMMR",
+    "mismatch repair deficient"
+  ],
+  "multiple myeloma": [
+    "MM",
+    "plasma cell myeloma",
+    "Kahler disease",
+    "myeloma"
+  ],
+  "myc": [
+    "c-Myc",
+    "MYC proto-oncogene",
+    "bHLHe39",
+    "v-myc"
+  ],
+  "neoadjuvant therapy": [
+    "preoperative therapy",
+    "primary systemic therapy",
+    "induction therapy"
+  ],
+  "neoantigen": [
+    "tumor neoantigen",
+    "neo-epitope",
+    "tumor-specific antigen",
+    "mutation-derived antigen"
+  ],
+  "neuroendocrine transformation": [
+    "neuroendocrine differentiation",
+    "small cell transformation",
+    "histologic transformation to SCLC"
+  ],
+  "neurotoxicity": [
+    "neurologic toxicity",
+    "ICANS",
+    "neurotoxic adverse event"
+  ],
+  "next-generation sequencing": [
+    "NGS",
+    "massively parallel sequencing",
+    "high-throughput sequencing"
+  ],
+  "nivolumab": [
+    "BMS-936558",
+    "ONO-4538",
+    "MDX-1106",
+    "Opdivo",
+    "anti-PD-1 antibody"
+  ],
+  "nkg2a": [
+    "KLRC1",
+    "CD159a",
+    "natural killer group 2A"
+  ],
+  "nsclc": [
+    "non-small cell lung cancer",
+    "non small cell lung carcinoma",
+    "non-small-cell lung carcinoma",
+    "lung cancer",
+    "small cell lung cancer"
+  ],
+  "olaparib": [
+    "AZD2281",
+    "KU-0059436",
+    "Lynparza",
+    "PARP inhibitor"
+  ],
+  "on-target resistance mutation": [
+    "gatekeeper mutation",
+    "secondary kinase mutation",
+    "resistance mutation in the target"
+  ],
+  "organoid": [
+    "tumor organoid",
+    "patient-derived organoid",
+    "PDO",
+    "3D culture"
+  ],
+  "orr": [
+    "objective response rate",
+    "overall response rate",
+    "response rate"
+  ],
+  "os": [
+    "overall survival",
+    "survival time"
+  ],
+  "osimertinib": [
+    "AZD9291",
+    "AZD-9291",
+    "Tagrisso",
+    "osimertinib mesylate",
+    "third-generation EGFR TKI"
+  ],
+  "paclitaxel": [
+    "Taxol",
+    "NSC 125973",
+    "taxane"
+  ],
+  "palbociclib": [
+    "PD-0332991",
+    "PD0332991",
+    "Ibrance",
+    "CDK4/6 inhibitor"
+  ],
+  "partial response": [
+    "PR",
+    "partial remission"
+  ],
+  "patient-derived xenograft": [
+    "PDX",
+    "patient derived xenograft model",
+    "xenograft model"
+  ],
+  "pd-1": [
+    "PDCD1",
+    "programmed cell death 1",
+    "CD279",
+    "programmed death-1"
+  ],
+  "pd-1 inhibitor": [
+    "anti-PD-1",
+    "PD-1 blockade",
+    "anti-PD-1 antibody"
+  ],
+  "pd-l1": [
+    "CD274",
+    "programmed death-ligand 1",
+    "B7-H1",
+    "PDL1",
+    "PD-1"
+  ],
+  "pd-l1 inhibitor": [
+    "anti-PD-L1",
+    "PD-L1 blockade",
+    "anti-PD-L1 antibody"
+  ],
+  "pdcd1": [
+    "PD-1",
+    "programmed cell death protein 1",
+    "CD279",
+    "PD1"
+  ],
+  "pembrolizumab": [
+    "MK-3475",
+    "Keytruda",
+    "lambrolizumab",
+    "anti-PD-1 antibody",
+    "checkpoint inhibitor"
+  ],
+  "pertuzumab": [
+    "Perjeta",
+    "2C4",
+    "rhuMAb 2C4",
+    "anti-HER2 dimerization inhibitor"
+  ],
+  "pfs": [
+    "progression-free survival",
+    "progression free survival",
+    "time to progression"
+  ],
+  "pharmacokinetics": [
+    "PK",
+    "drug exposure",
+    "plasma concentration profile"
+  ],
+  "pi3k": [
+    "phosphoinositide 3-kinase",
+    "phosphatidylinositol 3-kinase",
+    "PI-3K"
+  ],
+  "pik3ca": [
+    "p110 alpha",
+    "PI3K catalytic subunit alpha",
+    "phosphatidylinositol-4,5-bisphosphate 3-kinase catalytic subunit alpha",
+    "PI3KCA"
+  ],
+  "progenitor exhausted t cell": [
+    "Tpex",
+    "stem-like exhausted T cell",
+    "precursor exhausted T cell",
+    "TCF1+ exhausted T cell"
+  ],
+  "progressive disease": [
+    "PD",
+    "disease progression",
+    "radiographic progression"
+  ],
+  "prostate-specific antigen": [
+    "PSA",
+    "KLK3",
+    "kallikrein-3",
+    "gamma-seminoprotein"
+  ],
+  "protac": [
+    "proteolysis targeting chimera",
+    "PROTAC degrader",
+    "bivalent degrader"
+  ],
+  "rb1": [
+    "retinoblastoma 1",
+    "RB",
+    "pRb",
+    "retinoblastoma protein",
+    "p105-Rb",
+    "OSRC"
+  ],
+  "real-world evidence": [
+    "RWE",
+    "real world data",
+    "RWD",
+    "observational evidence"
+  ],
+  "recist": [
+    "RECIST 1.1",
+    "Response Evaluation Criteria in Solid Tumors",
+    "RECIST criteria"
+  ],
+  "regulatory t cell": [
+    "Treg",
+    "T-reg",
+    "FOXP3+ T cell",
+    "suppressor T cell"
+  ],
+  "ret": [
+    "RET proto-oncogene",
+    "rearranged during transfection",
+    "CDHF12"
+  ],
+  "ribociclib": [
+    "LEE011",
+    "LEE-011",
+    "Kisqali",
+    "CDK4/6 inhibitor"
+  ],
+  "ros1": [
+    "c-ros oncogene 1",
+    "ROS proto-oncogene 1",
+    "MCF3"
+  ],
+  "savolitinib": [
+    "AZD6094",
+    "volitinib",
+    "HMPL-504",
+    "Orpathys"
+  ],
+  "sclc": [
+    "small cell lung cancer",
+    "small cell lung carcinoma",
+    "oat cell carcinoma"
+  ],
+  "senescence": [
+    "cellular senescence",
+    "senescent state",
+    "growth arrest",
+    "senescence-associated secretory phenotype"
+  ],
+  "serd": [
+    "selective estrogen receptor degrader",
+    "selective ER degrader",
+    "estrogen receptor downregulator",
+    "aromatase inhibitor"
+  ],
+  "sftpc": [
+    "surfactant protein C",
+    "SP-C",
+    "surfactant associated protein C"
+  ],
+  "sickle cell disease": [
+    "SCD",
+    "sickle cell anemia",
+    "HbSS disease",
+    "drepanocytosis"
+  ],
+  "single-cell rna sequencing": [
+    "scRNA-seq",
+    "single cell RNA-seq",
+    "single-cell transcriptomics",
+    "sc-RNAseq"
+  ],
+  "slfn11": [
+    "schlafen 11",
+    "SLFN-11"
+  ],
+  "sotorasib": [
+    "AMG 510",
+    "AMG510",
+    "Lumakras",
+    "Lumykras"
+  ],
+  "spatial transcriptomics": [
+    "spatial profiling",
+    "spatially resolved transcriptomics",
+    "in situ transcriptomics"
+  ],
+  "spp1": [
+    "osteopontin",
+    "OPN",
+    "secreted phosphoprotein 1",
+    "BNSP",
+    "ETA-1"
+  ],
+  "t cell exhaustion": [
+    "exhausted T cells",
+    "T-cell dysfunction",
+    "Tex",
+    "T cell senescence",
+    "T cell anergy"
+  ],
+  "t790m": [
+    "EGFR T790M",
+    "gatekeeper mutation",
+    "p.T790M",
+    "threonine-790-methionine"
+  ],
+  "talquetamab": [
+    "JNJ-64407564",
+    "Talvey",
+    "talquetamab-tgvs",
+    "GPRC5D bispecific antibody"
+  ],
+  "targeted protein degrader": [
+    "protein degrader",
+    "molecular glue degrader",
+    "degrader",
+    "PROTAC"
+  ],
+  "tcf7": [
+    "TCF1",
+    "transcription factor 7",
+    "TCF-1",
+    "T cell factor 1"
+  ],
+  "tcr": [
+    "T cell receptor",
+    "T-cell antigen receptor"
+  ],
+  "teclistamab": [
+    "JNJ-64007957",
+    "Tecvayli",
+    "teclistamab-cqyv",
+    "BCMA bispecific antibody"
+  ],
+  "temozolomide": [
+    "TMZ",
+    "Temodar",
+    "Temodal",
+    "SCH 52365"
+  ],
+  "third-generation egfr tki": [
+    "third generation EGFR inhibitor",
+    "3rd-generation EGFR TKI",
+    "mutant-selective EGFR inhibitor"
+  ],
+  "tigit": [
+    "T cell immunoreceptor with Ig and ITIM domains",
+    "VSTM3",
+    "WUCAM",
+    "VSIG9"
+  ],
+  "tim-3": [
+    "HAVCR2",
+    "T-cell immunoglobulin and mucin domain 3",
+    "CD366"
+  ],
+  "tisagenlecleucel": [
+    "CTL019",
+    "Kymriah",
+    "tisa-cel",
+    "CD19 CAR T"
+  ],
+  "tmb": [
+    "tumor mutational burden",
+    "tumour mutation burden",
+    "mutational load",
+    "TMB-high"
+  ],
+  "tnbc": [
+    "triple-negative breast cancer",
+    "triple negative breast carcinoma",
+    "basal-like breast cancer"
+  ],
+  "tnfrsf17": [
+    "BCMA",
+    "B cell maturation antigen",
+    "CD269"
+  ],
+  "tocilizumab": [
+    "Actemra",
+    "RoActemra",
+    "MRA",
+    "anti-IL-6 receptor antibody"
+  ],
+  "tp53": [
+    "p53",
+    "tumor protein p53",
+    "TRP53",
+    "LFS1"
+  ],
+  "trastuzumab": [
+    "Herceptin",
+    "anti-HER2 antibody",
+    "rhuMAb HER2",
+    "trastuzumab deruxtecan"
+  ],
+  "trastuzumab deruxtecan": [
+    "T-DXd",
+    "DS-8201",
+    "DS-8201a",
+    "Enhertu",
+    "fam-trastuzumab deruxtecan"
+  ],
+  "trem2": [
+    "triggering receptor expressed on myeloid cells 2",
+    "TREM-2",
+    "PLOSL2"
+  ],
+  "tremelimumab": [
+    "CP-675,206",
+    "ticilimumab",
+    "Imjudo"
+  ],
+  "tumor microenvironment": [
+    "TME",
+    "tumour microenvironment",
+    "tumor immune microenvironment",
+    "tumor stroma",
+    "tumor-infiltrating lymphocytes"
+  ],
+  "tumor mutational burden": [
+    "TMB",
+    "mutational burden",
+    "nonsynonymous mutation burden"
+  ],
+  "tumor-associated macrophage": [
+    "TAM",
+    "TAMs",
+    "tumour associated macrophage"
+  ],
+  "tumor-infiltrating lymphocyte": [
+    "TIL",
+    "TILs",
+    "tumour infiltrating lymphocyte",
+    "intratumoral lymphocyte"
+  ],
+  "vemurafenib": [
+    "PLX4032",
+    "RG7204",
+    "Zelboraf",
+    "BRAF V600E inhibitor"
+  ],
+  "y537s": [
+    "ESR1 Y537S",
+    "p.Y537S",
+    "tyrosine-537-serine"
+  ]
+}

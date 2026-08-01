@@ -1,0 +1,1047 @@
+{
+  "D:ACQUIRED_ICB_RESISTANCE": {
+    "preferred": "acquired resistance to immune checkpoint blockade",
+    "broader": [
+      "D:IMMUNE_CHECKPOINT_BLOCKADE",
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": [
+      "D:ANTIGEN_PRESENTATION_DEFECT",
+      "D:JAK_PATHWAY_LOF"
+    ]
+  },
+  "D:ADENOSINE_METABOLIC_SUPPRESSION": {
+    "preferred": "adenosinergic metabolic immunosuppression",
+    "broader": [
+      "D:IMMUNOSUPPRESSIVE_MICROENVIRONMENT",
+      "D:TUMOR_HYPOXIA"
+    ],
+    "narrower": []
+  },
+  "D:ADJUVANT_THERAPY": {
+    "preferred": "adjuvant systemic therapy",
+    "broader": [],
+    "narrower": [
+      "D:NEOADJUVANT_IMMUNOTHERAPY"
+    ]
+  },
+  "D:ALK_FUSION": {
+    "preferred": "ALK gene rearrangement",
+    "broader": [
+      "D:NSCLC",
+      "D:ONCOGENE_ADDICTION"
+    ],
+    "narrower": []
+  },
+  "D:ALLOGENEIC_OFF_THE_SHELF_CELL_THERAPY": {
+    "preferred": "allogeneic off-the-shelf cell therapy",
+    "broader": [
+      "D:CELL_PRODUCT_MANUFACTURING"
+    ],
+    "narrower": [
+      "D:GVHD_ALLOREACTIVITY"
+    ]
+  },
+  "D:AML": {
+    "preferred": "acute myeloid leukemia",
+    "broader": [],
+    "narrower": []
+  },
+  "D:ANTIBODY_DRUG_CONJUGATE": {
+    "preferred": "antibody-drug conjugate",
+    "broader": [],
+    "narrower": []
+  },
+  "D:ANTIGEN_ESCAPE": {
+    "preferred": "antigen escape",
+    "broader": [
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": [
+      "D:ANTIGEN_PRESENTATION_DEFECT"
+    ]
+  },
+  "D:ANTIGEN_PRESENTATION_DEFECT": {
+    "preferred": "antigen presentation machinery defect",
+    "broader": [
+      "D:ACQUIRED_ICB_RESISTANCE",
+      "D:ANTIGEN_ESCAPE"
+    ],
+    "narrower": []
+  },
+  "D:ANTITUMOR_IMMUNITY": {
+    "preferred": "antitumor immune response",
+    "broader": [],
+    "narrower": [
+      "D:B_CELL_ANTITUMOR_IMMUNITY",
+      "D:GUT_MICROBIOME_MODULATION",
+      "D:IMMUNE_REPERTOIRE_CLONALITY",
+      "D:INTERFERON_GAMMA_SIGNALING",
+      "D:MEMORY_T_CELL_PHENOTYPE",
+      "D:NEOANTIGEN_LANDSCAPE",
+      "D:REGULATORY_T_CELL_DEPLETION",
+      "D:T_CELL_EXHAUSTION",
+      "D:T_CELL_TRAFFICKING"
+    ]
+  },
+  "D:ASSAY_CONCORDANCE_VALIDATION": {
+    "preferred": "analytical validation and assay concordance",
+    "broader": [],
+    "narrower": [
+      "D:FLOW_CYTOMETRY_MRD",
+      "D:PDL1_EXPRESSION_BIOMARKER"
+    ]
+  },
+  "D:BCMA_DIRECTED_THERAPY": {
+    "preferred": "BCMA-directed therapy",
+    "broader": [],
+    "narrower": []
+  },
+  "D:BISPECIFIC_ANTIBODY": {
+    "preferred": "bispecific antibody",
+    "broader": [],
+    "narrower": [
+      "D:BISPECIFIC_T_CELL_ENGAGER"
+    ]
+  },
+  "D:BISPECIFIC_T_CELL_ENGAGER": {
+    "preferred": "bispecific T-cell engaging antibody",
+    "broader": [
+      "D:BISPECIFIC_ANTIBODY"
+    ],
+    "narrower": []
+  },
+  "D:BYPASS_SIGNALING": {
+    "preferred": "bypass receptor tyrosine kinase signaling",
+    "broader": [
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": [
+      "D:MET_AMPLIFICATION",
+      "D:PI3K_PATHWAY_ACTIVATION"
+    ]
+  },
+  "D:B_ALL": {
+    "preferred": "B-cell acute lymphoblastic leukemia",
+    "broader": [],
+    "narrower": []
+  },
+  "D:B_CELL_ANTITUMOR_IMMUNITY": {
+    "preferred": "intratumoral B cell immunity",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY",
+      "D:TERTIARY_LYMPHOID_STRUCTURE"
+    ],
+    "narrower": []
+  },
+  "D:CAR_T_PERSISTENCE": {
+    "preferred": "CAR T-cell persistence and expansion",
+    "broader": [
+      "D:CD19_DIRECTED_CAR_T"
+    ],
+    "narrower": []
+  },
+  "D:CD19_DIRECTED_CAR_T": {
+    "preferred": "CD19-directed CAR T-cell therapy",
+    "broader": [],
+    "narrower": [
+      "D:CAR_T_PERSISTENCE",
+      "D:COSTIMULATORY_DOMAIN_DESIGN",
+      "D:LYMPHODEPLETION",
+      "D:SOLID_TUMOR_CAR_BARRIERS"
+    ]
+  },
+  "D:CD8_T_CELL_EXHAUSTION": {
+    "preferred": "CD8 T cell exhaustion",
+    "broader": [
+      "D:T_CELL_EXHAUSTION"
+    ],
+    "narrower": [
+      "D:STEMLIKE_PROGENITOR_T_CELLS"
+    ]
+  },
+  "D:CDK46_INHIBITOR_RESISTANCE": {
+    "preferred": "CDK4/6 inhibitor resistance",
+    "broader": [
+      "D:CDK46_INHIBITOR_THERAPY",
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": [
+      "D:CYCLIN_E_CDK2",
+      "D:PI3K_PATHWAY_ACTIVATION",
+      "D:RB_PATHWAY_LOSS"
+    ]
+  },
+  "D:CDK46_INHIBITOR_THERAPY": {
+    "preferred": "CDK4/6 inhibitor therapy",
+    "broader": [],
+    "narrower": [
+      "D:CDK46_INHIBITOR_RESISTANCE",
+      "D:THERAPY_INDUCED_SENESCENCE"
+    ]
+  },
+  "D:CELL_CYCLE_REGULATION": {
+    "preferred": "cell cycle control",
+    "broader": [],
+    "narrower": [
+      "D:CYCLIN_E_CDK2",
+      "D:RB_PATHWAY_LOSS",
+      "D:THERAPY_INDUCED_SENESCENCE"
+    ]
+  },
+  "D:CELL_PRODUCT_MANUFACTURING": {
+    "preferred": "cell product manufacturing and release testing",
+    "broader": [],
+    "narrower": [
+      "D:ALLOGENEIC_OFF_THE_SHELF_CELL_THERAPY"
+    ]
+  },
+  "D:CIRCULATING_TUMOR_DNA": {
+    "preferred": "circulating tumor DNA analysis",
+    "broader": [],
+    "narrower": [
+      "D:CTDNA_LIQUID_BIOPSY",
+      "D:MOLECULAR_RESIDUAL_DISEASE"
+    ]
+  },
+  "D:CLONAL_EVOLUTION": {
+    "preferred": "tumor clonal evolution",
+    "broader": [],
+    "narrower": [
+      "D:CLONAL_HEMATOPOIESIS",
+      "D:INTRATUMOR_HETEROGENEITY"
+    ]
+  },
+  "D:CLONAL_HEMATOPOIESIS": {
+    "preferred": "clonal hematopoiesis",
+    "broader": [
+      "D:CLONAL_EVOLUTION"
+    ],
+    "narrower": []
+  },
+  "D:CNS_DRUG_PENETRATION": {
+    "preferred": "central nervous system drug penetration",
+    "broader": [
+      "D:CNS_METASTASIS",
+      "D:DRUG_PHARMACOKINETICS"
+    ],
+    "narrower": []
+  },
+  "D:CNS_METASTASIS": {
+    "preferred": "central nervous system metastasis",
+    "broader": [],
+    "narrower": [
+      "D:CNS_DRUG_PENETRATION"
+    ]
+  },
+  "D:COMBINATION_CHECKPOINT_BLOCKADE": {
+    "preferred": "dual PD-1 and CTLA-4 combination blockade",
+    "broader": [
+      "D:COMBINATION_THERAPY",
+      "D:IMMUNE_CHECKPOINT_BLOCKADE"
+    ],
+    "narrower": []
+  },
+  "D:COMBINATION_THERAPY": {
+    "preferred": "combination targeted therapy",
+    "broader": [],
+    "narrower": [
+      "D:COMBINATION_CHECKPOINT_BLOCKADE"
+    ]
+  },
+  "D:COSTIMULATORY_DOMAIN_DESIGN": {
+    "preferred": "CAR costimulatory endodomain design",
+    "broader": [
+      "D:CD19_DIRECTED_CAR_T"
+    ],
+    "narrower": []
+  },
+  "D:CRISPR_GENOME_EDITING": {
+    "preferred": "CRISPR-Cas9 genome editing",
+    "broader": [],
+    "narrower": []
+  },
+  "D:CTDNA_LIQUID_BIOPSY": {
+    "preferred": "circulating tumor DNA liquid biopsy",
+    "broader": [
+      "D:CIRCULATING_TUMOR_DNA"
+    ],
+    "narrower": []
+  },
+  "D:CTLA4_BLOCKADE": {
+    "preferred": "CTLA-4 blockade",
+    "broader": [
+      "D:IMMUNE_CHECKPOINT_BLOCKADE"
+    ],
+    "narrower": [
+      "D:REGULATORY_T_CELL_DEPLETION"
+    ]
+  },
+  "D:CYCLIN_E_CDK2": {
+    "preferred": "cyclin E-CDK2 activation",
+    "broader": [
+      "D:CDK46_INHIBITOR_RESISTANCE",
+      "D:CELL_CYCLE_REGULATION"
+    ],
+    "narrower": []
+  },
+  "D:CYTOKINE_RELEASE_SYNDROME": {
+    "preferred": "cytokine release syndrome",
+    "broader": [
+      "D:TREATMENT_TOXICITY"
+    ],
+    "narrower": [
+      "D:IL6_AXIS_BLOCKADE",
+      "D:MYELOID_CELL_INFLAMMATION"
+    ]
+  },
+  "D:DLBCL": {
+    "preferred": "diffuse large B-cell lymphoma",
+    "broader": [],
+    "narrower": []
+  },
+  "D:DRUG_PHARMACOKINETICS": {
+    "preferred": "pharmacokinetics and exposure-response",
+    "broader": [],
+    "narrower": [
+      "D:CNS_DRUG_PENETRATION",
+      "D:EXPOSURE_RESPONSE_PK"
+    ]
+  },
+  "D:DRUG_TOLERANT_PERSISTER": {
+    "preferred": "drug-tolerant persister cells",
+    "broader": [
+      "D:EPIGENETIC_REPROGRAMMING",
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": []
+  },
+  "D:EARLY_PHASE_CLINICAL_TRIAL": {
+    "preferred": "early-phase clinical trial",
+    "broader": [],
+    "narrower": []
+  },
+  "D:EGFR_C797S": {
+    "preferred": "EGFR C797S tertiary mutation",
+    "broader": [
+      "D:EGFR_TKI_RESISTANCE"
+    ],
+    "narrower": []
+  },
+  "D:EGFR_EXON20_INSERTION": {
+    "preferred": "EGFR exon 20 insertion",
+    "broader": [
+      "D:NSCLC",
+      "D:ONCOGENE_ADDICTION"
+    ],
+    "narrower": []
+  },
+  "D:EGFR_T790M": {
+    "preferred": "EGFR T790M gatekeeper mutation",
+    "broader": [
+      "D:EGFR_TKI_RESISTANCE"
+    ],
+    "narrower": []
+  },
+  "D:EGFR_TKI_RESISTANCE": {
+    "preferred": "acquired resistance to EGFR tyrosine kinase inhibitors",
+    "broader": [
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": [
+      "D:EGFR_C797S",
+      "D:EGFR_T790M",
+      "D:HISTOLOGIC_TRANSFORMATION",
+      "D:MET_AMPLIFICATION"
+    ]
+  },
+  "D:ENDOCRINE_THERAPY_RESISTANCE": {
+    "preferred": "endocrine therapy resistance",
+    "broader": [
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": [
+      "D:ESR1_MUTATION",
+      "D:PI3K_PATHWAY_ACTIVATION"
+    ]
+  },
+  "D:EPIGENETIC_REGULATION": {
+    "preferred": "epigenetic regulation of gene expression",
+    "broader": [],
+    "narrower": [
+      "D:EPIGENETIC_REPROGRAMMING"
+    ]
+  },
+  "D:EPIGENETIC_REPROGRAMMING": {
+    "preferred": "epigenetic reprogramming of tumor cells",
+    "broader": [
+      "D:EPIGENETIC_REGULATION"
+    ],
+    "narrower": [
+      "D:DRUG_TOLERANT_PERSISTER",
+      "D:LINEAGE_PLASTICITY"
+    ]
+  },
+  "D:ESR1_MUTATION": {
+    "preferred": "ESR1 mutation",
+    "broader": [
+      "D:ENDOCRINE_THERAPY_RESISTANCE",
+      "D:PREDICTIVE_BIOMARKER"
+    ],
+    "narrower": []
+  },
+  "D:EXPOSURE_RESPONSE_PK": {
+    "preferred": "population pharmacokinetics and exposure-response",
+    "broader": [
+      "D:DRUG_PHARMACOKINETICS"
+    ],
+    "narrower": []
+  },
+  "D:FLOW_CYTOMETRY_MRD": {
+    "preferred": "multiparameter flow cytometry",
+    "broader": [
+      "D:ASSAY_CONCORDANCE_VALIDATION",
+      "D:MEASURABLE_RESIDUAL_DISEASE"
+    ],
+    "narrower": []
+  },
+  "D:GERMLINE_VARIATION": {
+    "preferred": "germline genetic variation",
+    "broader": [],
+    "narrower": []
+  },
+  "D:GUT_MICROBIOME_MODULATION": {
+    "preferred": "gut microbiome modulation of therapy response",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY"
+    ],
+    "narrower": []
+  },
+  "D:GVHD_ALLOREACTIVITY": {
+    "preferred": "graft-versus-host disease and alloreactivity",
+    "broader": [
+      "D:ALLOGENEIC_OFF_THE_SHELF_CELL_THERAPY",
+      "D:TREATMENT_TOXICITY"
+    ],
+    "narrower": []
+  },
+  "D:HEALTHCARE_ACCESS_DISPARITY": {
+    "preferred": "disparities in access to care",
+    "broader": [
+      "D:HEALTH_DISPARITIES"
+    ],
+    "narrower": []
+  },
+  "D:HEALTH_DISPARITIES": {
+    "preferred": "racial and socioeconomic disparities in cancer care",
+    "broader": [],
+    "narrower": [
+      "D:HEALTHCARE_ACCESS_DISPARITY"
+    ]
+  },
+  "D:HER2_LOW": {
+    "preferred": "HER2-low expression",
+    "broader": [
+      "D:HER2_TARGETED_THERAPY",
+      "D:PREDICTIVE_BIOMARKER"
+    ],
+    "narrower": []
+  },
+  "D:HER2_TARGETED_THERAPY": {
+    "preferred": "HER2-directed therapy",
+    "broader": [],
+    "narrower": [
+      "D:HER2_LOW"
+    ]
+  },
+  "D:HISTOLOGIC_TRANSFORMATION": {
+    "preferred": "histologic transformation to small cell carcinoma",
+    "broader": [
+      "D:EGFR_TKI_RESISTANCE",
+      "D:LINEAGE_PLASTICITY"
+    ],
+    "narrower": []
+  },
+  "D:ICANS_NEUROTOXICITY": {
+    "preferred": "immune effector cell-associated neurotoxicity syndrome",
+    "broader": [
+      "D:TREATMENT_TOXICITY"
+    ],
+    "narrower": []
+  },
+  "D:IL6_AXIS_BLOCKADE": {
+    "preferred": "interleukin 6 pathway blockade",
+    "broader": [
+      "D:CYTOKINE_RELEASE_SYNDROME"
+    ],
+    "narrower": []
+  },
+  "D:IMMUNE_CHECKPOINT_BLOCKADE": {
+    "preferred": "immune checkpoint blockade",
+    "broader": [],
+    "narrower": [
+      "D:ACQUIRED_ICB_RESISTANCE",
+      "D:COMBINATION_CHECKPOINT_BLOCKADE",
+      "D:CTLA4_BLOCKADE",
+      "D:IMMUNE_RELATED_ADVERSE_EVENTS",
+      "D:NEOADJUVANT_IMMUNOTHERAPY",
+      "D:PRIMARY_ICB_RESISTANCE"
+    ]
+  },
+  "D:IMMUNE_RELATED_ADVERSE_EVENTS": {
+    "preferred": "immune-related adverse events",
+    "broader": [
+      "D:IMMUNE_CHECKPOINT_BLOCKADE",
+      "D:TREATMENT_TOXICITY"
+    ],
+    "narrower": []
+  },
+  "D:IMMUNE_REPERTOIRE_CLONALITY": {
+    "preferred": "adaptive immune receptor repertoire clonality",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY"
+    ],
+    "narrower": [
+      "D:NGS_CLONOTYPE_SEQUENCING"
+    ]
+  },
+  "D:IMMUNOSUPPRESSIVE_MICROENVIRONMENT": {
+    "preferred": "immunosuppressive tumor microenvironment",
+    "broader": [
+      "D:TUMOR_MICROENVIRONMENT"
+    ],
+    "narrower": [
+      "D:ADENOSINE_METABOLIC_SUPPRESSION",
+      "D:MYELOID_IMMUNOSUPPRESSION"
+    ]
+  },
+  "D:INFECTION_IMMUNE_RECONSTITUTION": {
+    "preferred": "infectious complications and immune reconstitution",
+    "broader": [
+      "D:TREATMENT_TOXICITY"
+    ],
+    "narrower": []
+  },
+  "D:INTERFERON_GAMMA_SIGNALING": {
+    "preferred": "interferon-gamma signaling",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY"
+    ],
+    "narrower": [
+      "D:JAK_PATHWAY_LOF"
+    ]
+  },
+  "D:INTRATUMOR_HETEROGENEITY": {
+    "preferred": "intratumor heterogeneity",
+    "broader": [
+      "D:CLONAL_EVOLUTION"
+    ],
+    "narrower": []
+  },
+  "D:JAK_PATHWAY_LOF": {
+    "preferred": "JAK1/JAK2 loss-of-function alteration",
+    "broader": [
+      "D:ACQUIRED_ICB_RESISTANCE",
+      "D:INTERFERON_GAMMA_SIGNALING"
+    ],
+    "narrower": []
+  },
+  "D:KRAS_G12C_INHIBITION": {
+    "preferred": "KRAS G12C inhibitor therapy",
+    "broader": [
+      "D:ONCOGENE_ADDICTION"
+    ],
+    "narrower": []
+  },
+  "D:LINEAGE_PLASTICITY": {
+    "preferred": "lineage plasticity",
+    "broader": [
+      "D:EPIGENETIC_REPROGRAMMING",
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": [
+      "D:HISTOLOGIC_TRANSFORMATION"
+    ]
+  },
+  "D:LYMPHODEPLETION": {
+    "preferred": "lymphodepleting conditioning chemotherapy",
+    "broader": [
+      "D:CD19_DIRECTED_CAR_T"
+    ],
+    "narrower": []
+  },
+  "D:MEASURABLE_RESIDUAL_DISEASE": {
+    "preferred": "measurable residual disease",
+    "broader": [
+      "D:PROGNOSTIC_BIOMARKER",
+      "D:SURROGATE_ENDPOINT"
+    ],
+    "narrower": [
+      "D:FLOW_CYTOMETRY_MRD",
+      "D:MOLECULAR_RESIDUAL_DISEASE",
+      "D:NGS_CLONOTYPE_SEQUENCING"
+    ]
+  },
+  "D:MELANOMA": {
+    "preferred": "melanoma",
+    "broader": [],
+    "narrower": []
+  },
+  "D:MEMORY_T_CELL_PHENOTYPE": {
+    "preferred": "memory T-cell differentiation state",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY"
+    ],
+    "narrower": [
+      "D:STEMLIKE_PROGENITOR_T_CELLS"
+    ]
+  },
+  "D:MET_AMPLIFICATION": {
+    "preferred": "MET amplification",
+    "broader": [
+      "D:BYPASS_SIGNALING",
+      "D:EGFR_TKI_RESISTANCE"
+    ],
+    "narrower": []
+  },
+  "D:MISMATCH_REPAIR_DEFICIENCY": {
+    "preferred": "mismatch repair deficiency",
+    "broader": [
+      "D:TUMOR_MUTATIONAL_BURDEN",
+      "D:TUMOR_SUPPRESSOR_LOSS"
+    ],
+    "narrower": []
+  },
+  "D:MOLECULAR_RESIDUAL_DISEASE": {
+    "preferred": "molecular residual disease",
+    "broader": [
+      "D:CIRCULATING_TUMOR_DNA",
+      "D:MEASURABLE_RESIDUAL_DISEASE"
+    ],
+    "narrower": []
+  },
+  "D:MOUSE_MODEL": {
+    "preferred": "genetically engineered mouse models",
+    "broader": [
+      "D:PRECLINICAL_TUMOR_MODELS"
+    ],
+    "narrower": []
+  },
+  "D:MULTIPLE_MYELOMA": {
+    "preferred": "multiple myeloma",
+    "broader": [],
+    "narrower": []
+  },
+  "D:MYELOID_CELL_INFLAMMATION": {
+    "preferred": "monocyte and macrophage-driven inflammation",
+    "broader": [
+      "D:CYTOKINE_RELEASE_SYNDROME",
+      "D:MYELOID_IMMUNOSUPPRESSION"
+    ],
+    "narrower": []
+  },
+  "D:MYELOID_IMMUNOSUPPRESSION": {
+    "preferred": "myeloid-mediated immunosuppression",
+    "broader": [
+      "D:IMMUNOSUPPRESSIVE_MICROENVIRONMENT"
+    ],
+    "narrower": [
+      "D:MYELOID_CELL_INFLAMMATION",
+      "D:TAM_HETEROGENEITY"
+    ]
+  },
+  "D:NEOADJUVANT_IMMUNOTHERAPY": {
+    "preferred": "neoadjuvant immunotherapy",
+    "broader": [
+      "D:ADJUVANT_THERAPY",
+      "D:IMMUNE_CHECKPOINT_BLOCKADE"
+    ],
+    "narrower": [
+      "D:PATHOLOGIC_RESPONSE_ENDPOINT"
+    ]
+  },
+  "D:NEOANTIGEN_LANDSCAPE": {
+    "preferred": "tumor neoantigen landscape",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY",
+      "D:TUMOR_MUTATIONAL_BURDEN"
+    ],
+    "narrower": []
+  },
+  "D:NGS_CLONOTYPE_SEQUENCING": {
+    "preferred": "immunoglobulin clonotype sequencing",
+    "broader": [
+      "D:IMMUNE_REPERTOIRE_CLONALITY",
+      "D:MEASURABLE_RESIDUAL_DISEASE"
+    ],
+    "narrower": []
+  },
+  "D:NSCLC": {
+    "preferred": "non-small cell lung cancer",
+    "broader": [],
+    "narrower": [
+      "D:ALK_FUSION",
+      "D:EGFR_EXON20_INSERTION",
+      "D:ROS1_FUSION"
+    ]
+  },
+  "D:ONCOGENE_ADDICTION": {
+    "preferred": "oncogene addiction",
+    "broader": [],
+    "narrower": [
+      "D:ALK_FUSION",
+      "D:EGFR_EXON20_INSERTION",
+      "D:KRAS_G12C_INHIBITION",
+      "D:ROS1_FUSION"
+    ]
+  },
+  "D:PATHOLOGIC_RESPONSE_ENDPOINT": {
+    "preferred": "major pathologic response endpoint",
+    "broader": [
+      "D:NEOADJUVANT_IMMUNOTHERAPY",
+      "D:SURROGATE_ENDPOINT"
+    ],
+    "narrower": []
+  },
+  "D:PATIENT_DERIVED_MODEL": {
+    "preferred": "patient-derived tumor models",
+    "broader": [
+      "D:PRECLINICAL_TUMOR_MODELS"
+    ],
+    "narrower": []
+  },
+  "D:PDL1_EXPRESSION_BIOMARKER": {
+    "preferred": "PD-L1 expression as a predictive biomarker",
+    "broader": [
+      "D:ASSAY_CONCORDANCE_VALIDATION",
+      "D:PREDICTIVE_BIOMARKER"
+    ],
+    "narrower": []
+  },
+  "D:PI3K_PATHWAY_ACTIVATION": {
+    "preferred": "PI3K/AKT/mTOR pathway activation",
+    "broader": [
+      "D:BYPASS_SIGNALING",
+      "D:CDK46_INHIBITOR_RESISTANCE",
+      "D:ENDOCRINE_THERAPY_RESISTANCE"
+    ],
+    "narrower": []
+  },
+  "D:PRECLINICAL_TUMOR_MODELS": {
+    "preferred": "preclinical tumor models",
+    "broader": [],
+    "narrower": [
+      "D:MOUSE_MODEL",
+      "D:PATIENT_DERIVED_MODEL",
+      "D:SYNGENEIC_MOUSE_MODELS",
+      "D:XENOGRAFT_MODEL"
+    ]
+  },
+  "D:PREDICTIVE_BIOMARKER": {
+    "preferred": "predictive biomarker for treatment selection",
+    "broader": [],
+    "narrower": [
+      "D:ESR1_MUTATION",
+      "D:HER2_LOW",
+      "D:PDL1_EXPRESSION_BIOMARKER",
+      "D:TUMOR_MUTATIONAL_BURDEN"
+    ]
+  },
+  "D:PRIMARY_ICB_RESISTANCE": {
+    "preferred": "primary resistance to checkpoint inhibition",
+    "broader": [
+      "D:IMMUNE_CHECKPOINT_BLOCKADE",
+      "D:TARGETED_THERAPY_RESISTANCE"
+    ],
+    "narrower": []
+  },
+  "D:PROGNOSTIC_BIOMARKER": {
+    "preferred": "prognostic biomarker",
+    "broader": [],
+    "narrower": [
+      "D:MEASURABLE_RESIDUAL_DISEASE",
+      "D:PROGNOSTIC_STRATIFICATION"
+    ]
+  },
+  "D:PROGNOSTIC_STRATIFICATION": {
+    "preferred": "prognostic risk stratification",
+    "broader": [
+      "D:PROGNOSTIC_BIOMARKER"
+    ],
+    "narrower": []
+  },
+  "D:PROTEIN_DEGRADER": {
+    "preferred": "targeted protein degradation",
+    "broader": [
+      "D:STRUCTURAL_PHARMACOLOGY"
+    ],
+    "narrower": [
+      "D:SERD_THERAPY",
+      "D:TARGETED_PROTEIN_DEGRADATION"
+    ]
+  },
+  "D:RANDOMIZED_CLINICAL_TRIAL": {
+    "preferred": "randomized controlled trial",
+    "broader": [
+      "D:RANDOMIZED_TRIAL"
+    ],
+    "narrower": []
+  },
+  "D:RANDOMIZED_TRIAL": {
+    "preferred": "randomized controlled trial",
+    "broader": [],
+    "narrower": [
+      "D:RANDOMIZED_CLINICAL_TRIAL"
+    ]
+  },
+  "D:RB_PATHWAY_LOSS": {
+    "preferred": "RB1 pathway inactivation",
+    "broader": [
+      "D:CDK46_INHIBITOR_RESISTANCE",
+      "D:CELL_CYCLE_REGULATION",
+      "D:TUMOR_SUPPRESSOR_LOSS"
+    ],
+    "narrower": []
+  },
+  "D:REAL_WORLD_EVIDENCE": {
+    "preferred": "real-world evidence",
+    "broader": [],
+    "narrower": [
+      "D:REAL_WORLD_OUTCOMES",
+      "D:TREATMENT_ADHERENCE"
+    ]
+  },
+  "D:REAL_WORLD_OUTCOMES": {
+    "preferred": "real-world treatment outcome cohort",
+    "broader": [
+      "D:REAL_WORLD_EVIDENCE"
+    ],
+    "narrower": []
+  },
+  "D:REGULATORY_T_CELL_DEPLETION": {
+    "preferred": "intratumoral regulatory T cell depletion",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY",
+      "D:CTLA4_BLOCKADE"
+    ],
+    "narrower": []
+  },
+  "D:ROS1_FUSION": {
+    "preferred": "ROS1 gene rearrangement",
+    "broader": [
+      "D:NSCLC",
+      "D:ONCOGENE_ADDICTION"
+    ],
+    "narrower": []
+  },
+  "D:SECONDARY_MALIGNANCY": {
+    "preferred": "therapy-related second malignancy",
+    "broader": [
+      "D:TREATMENT_TOXICITY"
+    ],
+    "narrower": []
+  },
+  "D:SERD_THERAPY": {
+    "preferred": "selective estrogen receptor degrader",
+    "broader": [
+      "D:PROTEIN_DEGRADER"
+    ],
+    "narrower": []
+  },
+  "D:SINGLE_CELL_PROFILING": {
+    "preferred": "single-cell and spatial transcriptomics",
+    "broader": [
+      "D:SINGLE_CELL_TRANSCRIPTOMICS"
+    ],
+    "narrower": []
+  },
+  "D:SINGLE_CELL_TRANSCRIPTOMICS": {
+    "preferred": "single-cell transcriptomic profiling",
+    "broader": [],
+    "narrower": [
+      "D:SINGLE_CELL_PROFILING",
+      "D:SPATIAL_TISSUE_PROFILING"
+    ]
+  },
+  "D:SOLID_TUMOR_CAR_BARRIERS": {
+    "preferred": "solid tumor barriers to CAR T-cell therapy",
+    "broader": [
+      "D:CD19_DIRECTED_CAR_T"
+    ],
+    "narrower": [
+      "D:T_CELL_TRAFFICKING"
+    ]
+  },
+  "D:SPATIAL_TISSUE_PROFILING": {
+    "preferred": "spatially resolved tissue profiling",
+    "broader": [
+      "D:SINGLE_CELL_TRANSCRIPTOMICS"
+    ],
+    "narrower": []
+  },
+  "D:STEMLIKE_PROGENITOR_T_CELLS": {
+    "preferred": "stem-like progenitor exhausted CD8 T cells",
+    "broader": [
+      "D:CD8_T_CELL_EXHAUSTION",
+      "D:MEMORY_T_CELL_PHENOTYPE"
+    ],
+    "narrower": []
+  },
+  "D:STRUCTURAL_PHARMACOLOGY": {
+    "preferred": "structure-based inhibitor design",
+    "broader": [],
+    "narrower": [
+      "D:PROTEIN_DEGRADER"
+    ]
+  },
+  "D:SURROGATE_ENDPOINT": {
+    "preferred": "surrogate endpoint validation",
+    "broader": [],
+    "narrower": [
+      "D:MEASURABLE_RESIDUAL_DISEASE",
+      "D:PATHOLOGIC_RESPONSE_ENDPOINT"
+    ]
+  },
+  "D:SYNGENEIC_MOUSE_MODELS": {
+    "preferred": "syngeneic mouse tumor models",
+    "broader": [
+      "D:PRECLINICAL_TUMOR_MODELS"
+    ],
+    "narrower": []
+  },
+  "D:TAM_HETEROGENEITY": {
+    "preferred": "tumor-associated macrophage state heterogeneity",
+    "broader": [
+      "D:MYELOID_IMMUNOSUPPRESSION",
+      "D:TUMOR_MICROENVIRONMENT"
+    ],
+    "narrower": []
+  },
+  "D:TARGETED_PROTEIN_DEGRADATION": {
+    "preferred": "targeted protein degradation",
+    "broader": [
+      "D:PROTEIN_DEGRADER"
+    ],
+    "narrower": []
+  },
+  "D:TARGETED_THERAPY_RESISTANCE": {
+    "preferred": "acquired resistance to targeted therapy",
+    "broader": [],
+    "narrower": [
+      "D:ACQUIRED_ICB_RESISTANCE",
+      "D:ANTIGEN_ESCAPE",
+      "D:BYPASS_SIGNALING",
+      "D:CDK46_INHIBITOR_RESISTANCE",
+      "D:DRUG_TOLERANT_PERSISTER",
+      "D:EGFR_TKI_RESISTANCE",
+      "D:ENDOCRINE_THERAPY_RESISTANCE",
+      "D:LINEAGE_PLASTICITY",
+      "D:PRIMARY_ICB_RESISTANCE"
+    ]
+  },
+  "D:TERTIARY_LYMPHOID_STRUCTURE": {
+    "preferred": "tertiary lymphoid structures",
+    "broader": [
+      "D:TUMOR_MICROENVIRONMENT"
+    ],
+    "narrower": [
+      "D:B_CELL_ANTITUMOR_IMMUNITY"
+    ]
+  },
+  "D:THERAPY_INDUCED_SENESCENCE": {
+    "preferred": "therapy-induced senescence",
+    "broader": [
+      "D:CDK46_INHIBITOR_THERAPY",
+      "D:CELL_CYCLE_REGULATION"
+    ],
+    "narrower": []
+  },
+  "D:TREATMENT_ADHERENCE": {
+    "preferred": "treatment adherence and persistence",
+    "broader": [
+      "D:REAL_WORLD_EVIDENCE"
+    ],
+    "narrower": []
+  },
+  "D:TREATMENT_TOXICITY": {
+    "preferred": "treatment-related adverse events",
+    "broader": [],
+    "narrower": [
+      "D:CYTOKINE_RELEASE_SYNDROME",
+      "D:GVHD_ALLOREACTIVITY",
+      "D:ICANS_NEUROTOXICITY",
+      "D:IMMUNE_RELATED_ADVERSE_EVENTS",
+      "D:INFECTION_IMMUNE_RECONSTITUTION",
+      "D:SECONDARY_MALIGNANCY",
+      "D:TREATMENT_TOXICITY_MANAGEMENT"
+    ]
+  },
+  "D:TREATMENT_TOXICITY_MANAGEMENT": {
+    "preferred": "treatment-related toxicity management",
+    "broader": [
+      "D:TREATMENT_TOXICITY"
+    ],
+    "narrower": []
+  },
+  "D:TUMOR_HYPOXIA": {
+    "preferred": "tumor hypoxia",
+    "broader": [
+      "D:TUMOR_MICROENVIRONMENT"
+    ],
+    "narrower": [
+      "D:ADENOSINE_METABOLIC_SUPPRESSION"
+    ]
+  },
+  "D:TUMOR_MICROENVIRONMENT": {
+    "preferred": "tumor immune microenvironment",
+    "broader": [],
+    "narrower": [
+      "D:IMMUNOSUPPRESSIVE_MICROENVIRONMENT",
+      "D:TAM_HETEROGENEITY",
+      "D:TERTIARY_LYMPHOID_STRUCTURE",
+      "D:TUMOR_HYPOXIA"
+    ]
+  },
+  "D:TUMOR_MUTATIONAL_BURDEN": {
+    "preferred": "tumor mutational burden",
+    "broader": [
+      "D:PREDICTIVE_BIOMARKER"
+    ],
+    "narrower": [
+      "D:MISMATCH_REPAIR_DEFICIENCY",
+      "D:NEOANTIGEN_LANDSCAPE"
+    ]
+  },
+  "D:TUMOR_SUPPRESSOR_LOSS": {
+    "preferred": "tumor suppressor gene inactivation",
+    "broader": [],
+    "narrower": [
+      "D:MISMATCH_REPAIR_DEFICIENCY",
+      "D:RB_PATHWAY_LOSS"
+    ]
+  },
+  "D:T_CELL_EXHAUSTION": {
+    "preferred": "T-cell exhaustion",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY"
+    ],
+    "narrower": [
+      "D:CD8_T_CELL_EXHAUSTION"
+    ]
+  },
+  "D:T_CELL_TRAFFICKING": {
+    "preferred": "T-cell trafficking and chemokine signaling",
+    "broader": [
+      "D:ANTITUMOR_IMMUNITY",
+      "D:SOLID_TUMOR_CAR_BARRIERS"
+    ],
+    "narrower": []
+  },
+  "D:XENOGRAFT_MODEL": {
+    "preferred": "xenograft mouse model",
+    "broader": [
+      "D:PRECLINICAL_TUMOR_MODELS"
+    ],
+    "narrower": []
+  }
+}

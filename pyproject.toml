@@ -1,0 +1,17 @@
+[project]
+name = "oncolens"
+version = "0.1.0"
+description = "Passage-grounded retrieval over oncology grants and papers, with a rigorous A/B evaluation harness"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "scipy>=1.11"]
+
+[project.optional-dependencies]
+# Enabled when network + credentials are available.
+neural = ["voyageai>=0.3", "anthropic>=0.60"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

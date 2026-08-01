@@ -1,0 +1,183 @@
+# How OncoLens measures retrieval, and why it measures it that way
+
+This document is the argument for the harness. Its claim is narrow and worth stating
+plainly up front:
+
+> **This benchmark is a reliable A/B instrument for comparing retrieval configurations.
+> It is not evidence of absolute real-world retrieval quality.**
+
+Everything below either supports that claim or marks its limits.
+
+---
+
+## 1. The default way to do this is wrong
+
+The common recipe — ask an LLM to write one query per chunk, mark that chunk relevant, and
+track recall@10 — fails in four independent ways, each of which biases the loop toward the
+wrong answer.
+
+### 1.1 Queries derived from their target are not queries
+
+If the query is generated *from* the passage it is supposed to find, it shares that
+passage's vocabulary. Lexical retrieval then looks extraordinary, dense retrieval looks
+unnecessary, and the conclusion is an artifact of query construction.
+
+**Here:** the `paraphrase` stratum forbids any content word of length ≥ 5 from appearing
+verbatim in the top relevant document. The `conceptual` stratum is built on descriptors
+that are deliberately **lexically silent** — at least 30% of gold assignments describe a
+concept the document never names.
+
+### 1.2 One relevant document per query punishes the systems you want
+
+This is the most damaging error and the least obvious. If qrels mark a single relevant
+document, then a *better* system that surfaces a second genuinely relevant document is
+scored as if it retrieved junk. The measurement actively fights the improvement.
+
+**Here:** queries carry 3–15 graded judgments spanning all four subdomains.
+`scripts/run.py validate` counts single-relevant queries and flags them as a defect.
+`experiment.pool_gaps()` lists every document that appeared in some system's top-10 but was
+never judged, which is the work queue for keeping the pool current.
+
+### 1.3 Binary relevance destroys ranking information
+
+"The definitive paper" and "mentions the drug once in a Discussion" are not the same
+result, and a metric that cannot tell them apart cannot reward putting the right one first.
+
+**Here:** graded 0–3 with exponential-gain nDCG. A judgment of `0` is recorded explicitly
+and means *checked, not relevant* — which is strictly more information than absent, and is
+what makes `bpref` computable.
+
+### 1.4 Recall-only evaluation rewards returning everything
+
+A system that returns 50 documents for every query, including queries with no answer, will
+beat a careful system on recall. In production it is worse.
+
+**Here:** the `no_answer` stratum has empty judgments; the correct behaviour is to return
+nothing. It is scored by `abstained` and `false_pos@10`, and the gate blocks any change
+that increases false positives.
+
+---
+
+## 2. Metrics, and what each one is protecting against
+
+| Metric | Role | Fails when |
+|---|---|---|
+| `ndcg@10` | Primary. Graded, rank-sensitive | Judgments are incomplete |
+| `recall@{1,5,10,20,50}` | Coverage across the depth curve | Rewards dumping results |
+| `precision@k` | Result-set purity | Undefined without negatives |
+| `mrr` | Time-to-first-good-result | Ignores everything after rank 1 |
+| `map` | Whole-ranking quality | Sensitive to pool depth |
+| **`bpref`** | **Robust to incomplete judgments** | Needs judged negatives to exist |
+| `unjudged@10` | **Diagnostic, not a score** | — |
+
+No single number is trusted. `CONSENSUS_METRICS` requires at least 4 of 6 to move together.
+
+### `unjudged@10` is the honesty valve
+
+If a candidate's `unjudged@10` jumps, it is retrieving documents the pool never assessed.
+Its score is then an underestimate *of unknown size*, and the comparison is not
+interpretable. The gate refuses to promote in that situation rather than guessing.
+
+`tests/test_metrics.py` demonstrates the underlying asymmetry directly: inserting one
+unjudged document at rank 1 leaves `bpref` unchanged at 0.3333 while `ndcg@3` falls from
+0.7985 to 0.4702.
+
+---
+
+## 3. Statistics: "the mean went up" is not a result
+
+With ~150 queries and effect sizes in the 0.01–0.05 range, run-to-run differences are
+routinely larger than real ones.
+
+* **Paired randomization (permutation) test** for the p-value — the IR standard, no
+  distributional assumption. Query difficulty varies far more than system quality, so
+  everything is paired.
+* **Percentile bootstrap CI** on the mean paired difference.
+* **Cohen's `d_z`** plus explicit **win/loss/tie** counts. A change that wins on 8 queries
+  and loses on 7 is not the same as one that wins on 40 and loses on 2, even at equal mean.
+* **Bonferroni over the multiple-comparisons ledger.** Every dev evaluation is recorded and
+  the significance threshold is `0.05 / n_dev_draws`. An iterative loop that ignores this is
+  a p-hacking machine by construction: enough challengers and something always "wins".
+* **Minimum detectable effect** is reported per stratum. Claiming "no regression" on a
+  stratum of 12 queries is not a finding — `detectable_effect` says so out loud.
+
+---
+
+## 4. Holistic evaluation = per-stratum gating
+
+An aggregate mean can rise while an entire query type collapses. That is the single most
+common way a RAG system silently gets worse for real users: semantics improve, exact
+identifier lookup dies, and the average looks fine.
+
+The gate therefore evaluates **every stratum independently** and blocks promotion on any
+significant regression beyond `STRATUM_TOLERANCE = 0.02`, regardless of the aggregate.
+
+| Stratum | What it protects |
+|---|---|
+| `lexical` | Exact identifiers (`EGFR C797S`, `NCT…`) — where dense retrieval structurally cannot help |
+| `conceptual` | Semantic reach when the words differ from the document's |
+| `paraphrase` | Everyday phrasing of a technical idea |
+| `multi_hop` | Grant→publication and citation traversal |
+| `boolean_scope` | Conjunction/negation — where explicit `0` judgments make precision measurable |
+| `no_answer` | Knowing when to return nothing |
+
+---
+
+## 5. Threats this harness does *not* eliminate
+
+Stated because a validity section that only lists strengths is marketing.
+
+1. **The corpus is authored, not collected.** Real grant prose is messier, more repetitive,
+   and less internally consistent. Absolute numbers here will not transfer. Relative
+   comparisons largely will, because the bias is shared across arms.
+2. **Author-side correlation.** The corpus and the queries were produced by the same class
+   of model. Some shared vocabulary bias is unavoidable. Mitigations: corpus and labels
+   were frozen *before* any retriever existed; query authors were blocked from reading the
+   retrieval lexicon; the lexicon was built without reading the gold concept space.
+3. **Ontology contamination.** If the retrieval lexicon overlaps the gold concept space,
+   expansion wins by construction. `contamination_report()` quantifies the overlap and it
+   is printed on every validation run. It is discounted, not ignored.
+4. **Pooling is shallow.** Judgments cover the union of what the configurations tried so
+   far. A genuinely novel retriever will have inflated `unjudged@10` and be under-credited
+   until its results are judged.
+5. **Dev-set overfitting persists** despite Bonferroni. The locked `test` split is opened
+   exactly once; the dev/test gap is the estimate of how much of the gain was fitted, and
+   it is reported whether or not it is flattering.
+6. **LSA is not a neural embedder.** It has the right qualitative profile — strong on
+   paraphrase, weak on unseen identifiers — but conclusions about *how much* dense
+   retrieval helps must be re-derived once a real embedding backend is connected.
+
+---
+
+## 6. Label provenance, and what it would be on real data
+
+The offline label sources deliberately mirror the "found data" that exists in the real
+corpus, so the harness ports over when network access exists.
+
+| Harness `source` | Real-world equivalent | Independence |
+|---|---|---|
+| `descriptor` | NLM MeSH indexing (human indexers) | High — human, pre-existing |
+| `funding_link` | NIH RePORTER grant→publication | High — asserted by the PI |
+| `citation_ctx` | Citation contexts (SPECTER/SciNCL) | High — author-asserted |
+| `pooled` | TREC-style pooled judgments | Highest — but expensive |
+
+**Migration path.** Swap the corpus loader to real NIH RePORTER + PMC OA data and the
+labels come almost free: MeSH terms are already attached to every PubMed record,
+grant→publication links ship with RePORTER, and citation contexts are extractable from PMC
+full text. The metrics, statistics, gate and loop need no changes — only `data.py` does.
+That is the main reason the harness is written backend- and corpus-agnostic.
+
+---
+
+## 7. The promotion gate
+
+A challenger is committed only if **all** hold:
+
+1. `ndcg@10` improves, significant at the Bonferroni-adjusted alpha;
+2. ≥ 4 of 6 consensus metrics improve, and none degrades significantly;
+3. no stratum regresses significantly beyond 0.02;
+4. `no_answer` false positives do not rise and abstention does not fall;
+5. `unjudged@10` does not spike by more than 0.15;
+6. underpowered strata are reported rather than silently passed.
+
+Rules 3–5 are the ones that distinguish this from "the number went up".

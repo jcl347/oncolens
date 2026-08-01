@@ -24,6 +24,7 @@ from oncolens.loop import EXPERIMENTS, final_test_evaluation, load_champion, run
 from oncolens.retrieval.chunking import chunk_corpus  # noqa: E402
 from oncolens.retrieval.expansion import Lexicon, contamination_report  # noqa: E402
 from oncolens.retrieval.pipeline import RetrievalConfig  # noqa: E402
+from oncolens.sanity import sanity_report  # noqa: E402
 
 VOCAB = REPO / "data" / "vocab"
 RETRIEVAL_SOURCES = [
@@ -105,6 +106,19 @@ def cmd_validate() -> int:
     print(f"  invalid offsets              {len(bad)}")
     if bad:
         problems.append(f"{len(bad)} chunks have invalid offsets — provenance is broken")
+
+    print()
+    print("=" * 72)
+    print("BENCHMARK EXPLOITABILITY (degenerate baselines bracket every result)")
+    print("=" * 72)
+    for split in ("dev", "test"):
+        rep = sanity_report(ds, split=split)
+        line = "  ".join(f"{k}={v}" for k, v in rep["primary"].items())
+        print(f"  {split}: {line}")
+        print(f"         headroom above popularity = {rep['headroom_above_popularity']}")
+        for p in rep["problems"]:
+            print(f"         ! {p}")
+            problems.append(f"[{split}] {p}")
 
     print()
     print("=" * 72)

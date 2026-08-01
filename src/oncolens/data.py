@@ -53,31 +53,78 @@ class Query:
         return not any(g >= 1 for g in self.judgments.values())
 
 
+#: Two queries whose grade-3 target sets overlap at least this much are the same
+#: information need and must not be split across dev/test.
+NEED_CLUSTER_JACCARD = 0.5
+
+
 @dataclass
 class Dataset:
     docs: list[dict] = field(default_factory=list)
     queries: list[Query] = field(default_factory=list)
     integrity: dict = field(default_factory=dict)
+    _need_groups: dict[str, str] | None = field(default=None, repr=False)
 
     @property
     def doc_ids(self) -> set[str]:
         return {d["doc_id"] for d in self.docs}
 
     def split(self, which: str) -> list[Query]:
-        """Deterministic dev/test split by hash of query_id.
+        """Deterministic dev/test split by hash of the INFORMATION NEED, not the query_id.
 
-        Hashing (rather than a stored flag) means the split cannot drift as files are
-        edited, and cannot be quietly reshuffled to flatter a result.
+        Hashing query_id splits *identifiers*, which leaks: two differently-worded queries
+        targeting the same documents land in different splits, so the "locked" test set is
+        partly answerable from dev tuning. An audit measured 18 of 49 test queries sharing
+        at least half of their grade-3 targets with a dev query, and three pairs sharing
+        all of them.
+
+        Instead, queries are clustered by overlap of their grade-3 target sets (union-find
+        at Jaccard >= NEED_CLUSTER_JACCARD) and the *cluster* is hashed, so an entire
+        information need lands wholly in dev or wholly in test.
         """
         if which == "all":
             return list(self.queries)
+        groups = self.need_groups()
         out = []
         for q in self.queries:
-            h = int(hashlib.sha256(q.query_id.encode()).hexdigest()[:8], 16)
-            bucket = "dev" if (h % 100) < 60 else "test"
-            if bucket == which:
+            gid = groups.get(q.query_id, q.query_id)
+            h = int(hashlib.sha256(gid.encode()).hexdigest()[:8], 16)
+            if ("dev" if (h % 100) < 60 else "test") == which:
                 out.append(q)
         return out
+
+    def need_groups(self) -> dict[str, str]:
+        """query_id -> cluster id, grouping queries that target the same documents."""
+        if self._need_groups is not None:
+            return self._need_groups
+        targets = {}
+        for q in self.queries:
+            high = {d for d, g in q.judgments.items() if g >= 3}
+            targets[q.query_id] = high or {d for d, g in q.judgments.items() if g >= 1}
+        parent = {qid: qid for qid in targets}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        ids = sorted(targets)
+        for i, a in enumerate(ids):
+            ta = targets[a]
+            if not ta:
+                continue
+            for b in ids[i + 1:]:
+                tb = targets[b]
+                if not tb:
+                    continue
+                inter = len(ta & tb)
+                if inter and inter / len(ta | tb) >= NEED_CLUSTER_JACCARD:
+                    ra, rb = find(a), find(b)
+                    if ra != rb:
+                        parent[rb] = ra
+        self._need_groups = {qid: find(qid) for qid in ids}
+        return self._need_groups
 
     def strata(self) -> dict[str, str]:
         return {q.query_id: q.stratum for q in self.queries}
@@ -95,10 +142,36 @@ def load_corpus(corpus_dir: Path | None = None) -> list[dict]:
             if did in seen:
                 raise ValueError(f"{path.name}:{lineno}: duplicate doc_id {did}")
             seen.add(did)
+            # HARD FAIL, not a warning. Gold labels living in the retrieval corpus is the
+            # most damaging defect this benchmark can have: the loader would hand the
+            # answer key to the indexer and every measured gain would be an artifact.
+            # An adversarial audit found exactly this, so the loader now refuses it.
+            for forbidden in ("descriptors", "mesh_detail"):
+                if forbidden in obj:
+                    raise ValueError(
+                        f"{path.name}:{lineno}: document {did} carries answer-key field "
+                        f"'{forbidden}'. Labels must live in data/labels/, never in the "
+                        f"retrieval corpus. Run scripts/split_labels.py."
+                    )
             obj.setdefault("sections", [])
-            obj.setdefault("descriptors", [])
             docs.append(obj)
     return docs
+
+
+def load_labels(labels_dir: Path | None = None) -> dict[str, list[str]]:
+    """Gold descriptors, read ONLY by the qrels builder and the evaluator.
+
+    Kept in a separate file and a separate function so that no retrieval code path can
+    reach them by accident.
+    """
+    d = labels_dir or (data_dir() / "labels")
+    out: dict[str, list[str]] = {}
+    if not d.exists():
+        return out
+    for path in sorted(d.glob("*.jsonl")):
+        for _lineno, obj in _read_jsonl(path):
+            out[obj["doc_id"]] = obj.get("descriptors", [])
+    return out
 
 
 def load_queries(qrels_dir: Path | None = None) -> list[Query]:

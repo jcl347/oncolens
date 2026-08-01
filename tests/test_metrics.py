@@ -20,7 +20,9 @@ from oncolens.eval import stats as S
 # Shared fixture:
 #   judgments: A=3 (definitive), B=0 (judged non-relevant), C=1 (marginal), D=2 (relevant)
 #   ranking:   [A, B, C]        (D is relevant but never retrieved)
-J = {"A": 3, "B": 0, "C": 1, "D": 2}
+# 10+ judged negatives so bpref is defined (see MIN_JUDGED_NEGATIVES_FOR_BPREF):
+# below that threshold the denominator min(R,N) makes bpref noise, not signal.
+J = {"A": 3, "B": 0, "C": 1, "D": 2, **{f"N{i}": 0 for i in range(9)}}
 R = ["A", "B", "C"]
 
 failures: list[str] = []
@@ -44,7 +46,7 @@ check("ndcg@3", M.ndcg_at_k(R, J, 3), 7.5 / (7 + 3 / math.log2(3) + 0.5))
 print("recall / precision")
 # relevant (grade>=1) = {A, C, D}; top3 contains A and C
 check("recall@3", M.recall_at_k(R, J, 3), 2 / 3)
-check("precision@3", M.precision_at_k(R, J, 3), 2 / 3)
+check("precision@3", M.precision_at_k(R, J, 3), 2 / 3)  # rel set unchanged: A, C, D
 check("recall@1", M.recall_at_k(R, J, 1), 1 / 3)
 
 print("MRR / MAP")
@@ -53,13 +55,13 @@ check("mrr", M.mrr(R, J), 1.0)  # A is relevant at rank 1
 check("map", M.average_precision(R, J), (1.0 + 2 / 3) / 3)
 
 print("bpref")
-# R=3 relevant, N=1 judged non-relevant, denom=min(3,1)=1
-#   A (rel), 0 non-rel seen above -> 1 - 0/1 = 1
+# R=3 relevant, N=10 judged non-relevant, denom=min(3,10)=3
+#   A (rel), 0 non-rel above -> 1 - 0/3 = 1
 #   B (non-rel) -> seen=1
-#   C (rel), 1 non-rel seen above -> 1 - min(1,3)/1 = 0
+#   C (rel), 1 non-rel above -> 1 - min(1,3)/3 = 2/3
 #   D never retrieved -> contributes 0
-# bpref = (1 + 0 + 0) / 3
-check("bpref", M.bpref(R, J), 1 / 3)
+# bpref = (1 + 2/3 + 0) / 3
+check("bpref", M.bpref(R, J), (1 + 2 / 3) / 3)
 
 print("unjudged@k diagnostic")
 check("unjudged@3 (all judged)", M.unjudged_at_k(R, J, 3), 0.0)
@@ -85,8 +87,12 @@ na = M.evaluate_query(["A", "B"], {})
 check("no-answer panel has no recall", na.get("recall@10"), None)
 check("no-answer panel has false_pos@10", na.get("false_pos@10"), 2.0)
 
-print("bpref returns None without judged negatives (no signal, not a perfect score)")
+print("bpref is undefined when judged negatives are too few to be meaningful")
 check("bpref, no negatives", M.bpref(["A"], {"A": 3}), None)
+check("bpref, 2 negatives (denominator too small)",
+      M.bpref(["A", "B"], {"A": 3, "B": 0, "C": 0, "D": 2}), None)
+_many = {"A": 3, "C": 1, "D": 2, **{f"N{i}": 0 for i in range(12)}}
+check("bpref defined with 12 negatives", M.bpref(["A", "C"], _many) is not None, True)
 
 print("statistics")
 a = {f"q{i}": {"m": 0.5} for i in range(40)}

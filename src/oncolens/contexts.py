@@ -66,6 +66,34 @@ def build_contexts(docs: Sequence[Mapping], chunks: Sequence[Chunk], *, mode: st
     return out
 
 
+def assert_corpus_carries_no_labels(corpus_dir) -> list[str]:
+    """Check the CORPUS FILES for answer-key fields.
+
+    The original guard only scanned source code for *reads* of ``descriptors`` and passed
+    cleanly while all 140 corpus documents carried the labels inline. Guarding the code
+    while ignoring the data is a guard that cannot fail for the reason that matters.
+    """
+    import json
+    from pathlib import Path
+
+    violations: list[str] = []
+    for path in sorted(Path(corpus_dir).glob("*.jsonl")):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            for field in FORBIDDEN_FIELDS + ("mesh_detail",):
+                if field in obj:
+                    violations.append(
+                        f"{path.name}:{lineno}: corpus document {obj.get('doc_id')} carries "
+                        f"answer-key field '{field}'"
+                    )
+    return violations
+
+
 def assert_no_label_leakage(source_files: Sequence[str]) -> list[str]:
     """Scan retrieval-path source for reads of answer-key fields.
 

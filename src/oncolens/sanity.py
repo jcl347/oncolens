@@ -70,6 +70,35 @@ def length_run(dataset: Dataset, split: str, *, k: int = 50) -> dict[str, list[s
     return {q.query_id: list(ranked) for q in dataset.split(split)}
 
 
+def raw_tf_run(dataset: Dataset, split: str, *, k: int = 50) -> dict[str, list[str]]:
+    """The floor that actually matters: raw term frequency, no IDF, no length norm.
+
+    An audit found a ~20-line scorer of this shape reaching ndcg@10 = 0.476 on this
+    benchmark. Random and popularity are floors nobody would hit; *this* is the floor a
+    real system must clear to have earned any of its machinery. A hybrid pipeline that
+    barely beats raw TF has not demonstrated that BM25, dense retrieval, fusion and
+    reranking are contributing anything.
+    """
+    from .retrieval.text import tokenize
+
+    counts: dict[str, dict[str, int]] = {}
+    for d in dataset.docs:
+        blob = " ".join([d.get("title", "")] + [x.get("text", "") for x in d.get("sections", [])])
+        c: dict[str, int] = {}
+        for t in tokenize(blob):
+            c[t] = c.get(t, 0) + 1
+        counts[d["doc_id"]] = c
+
+    out: dict[str, list[str]] = {}
+    for q in dataset.split(split):
+        qt = tokenize(q.query)
+        scored = [(doc_id, sum(c.get(t, 0) for t in qt)) for doc_id, c in counts.items()]
+        scored = [(d, sc) for d, sc in scored if sc > 0]
+        scored.sort(key=lambda x: (-x[1], x[0]))
+        out[q.query_id] = [d for d, _ in scored[:k]]
+    return out
+
+
 def oracle_run(dataset: Dataset, split: str, *, k: int = 50) -> dict[str, list[str]]:
     """Ceiling: judged documents sorted by grade. nDCG is 1.0 by construction."""
     out: dict[str, list[str]] = {}
@@ -97,6 +126,7 @@ def sanity_report(dataset: Dataset, *, split: str = "dev") -> dict:
         "random": random_run(dataset, split),
         "popularity": popularity_run(dataset, split),
         "length": length_run(dataset, split),
+        "raw_tf": raw_tf_run(dataset, split),
         "oracle": oracle_run(dataset, split),
     }
     scores = {name: _score(run, dataset, split) for name, run in baselines.items()}
@@ -105,6 +135,7 @@ def sanity_report(dataset: Dataset, *, split: str = "dev") -> dict:
     rnd = scores["random"].get(PRIMARY, 0.0)
     orc = scores["oracle"].get(PRIMARY, 0.0)
     length = scores["length"].get(PRIMARY, 0.0)
+    raw_tf = scores["raw_tf"].get(PRIMARY, 0.0)
 
     problems: list[str] = []
     # A query-independent baseline scoring above ~0.15 means the benchmark leaks.
@@ -130,8 +161,16 @@ def sanity_report(dataset: Dataset, *, split: str = "dev") -> dict:
             f"absolute numbers with that prior in mind."
         )
 
+    if raw_tf > 0.40:
+        problems.append(
+            f"FLOOR: raw term-frequency scoring (no IDF, no length normalisation, no "
+            f"chunking, no dense arm, no fusion) already reaches {PRIMARY}={raw_tf:.4f}. "
+            f"Any configuration must clearly beat this to have justified its machinery."
+        )
+
     return {
         "split": split,
+        "raw_tf_floor": round(raw_tf, 4),
         "scores": {k: {m: round(v, 4) for m, v in s.items() if "@" not in m or m.endswith("@10")}
                    for k, s in scores.items()},
         "primary": {k: round(s.get(PRIMARY, 0.0), 4) for k, s in scores.items()},

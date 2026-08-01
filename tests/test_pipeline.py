@@ -36,9 +36,11 @@ def check(name: str, cond: bool, detail: str = ""):
 
 
 def _doc(did, dtype, title, secs, **meta):
+    # No `descriptors` key: gold labels must never live in the retrieval corpus.
+    # load_corpus() now raises if one appears, which is how this fixture caught itself.
     return {"doc_id": did, "doc_type": dtype, "title": title, "year": 2023,
             "sections": [{"name": n, "text": t} for n, t in secs],
-            "meta": meta, "descriptors": ["D:TEST"], "funded_by": [], "cites": []}
+            "meta": meta, "funded_by": [], "cites": []}
 
 
 DOCS = [

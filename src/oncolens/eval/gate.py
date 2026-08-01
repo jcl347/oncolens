@@ -32,6 +32,12 @@ CONSENSUS_MIN = 4
 STRATUM_TOLERANCE = 0.02
 #: Rise in unjudged@10 above which the comparison is declared unreliable.
 UNJUDGED_SPIKE = 0.15
+#: Absolute unjudged@10 above which no comparison is interpretable at all, regardless of
+#: whether the candidate made it worse. An audit measured 0.63-0.95 here, from a pool
+#: covering only 7% of the corpus.
+UNJUDGED_ABSOLUTE_MAX = 0.35
+#: Block promotion when a stratum is too small to detect the regression it gates on.
+REQUIRE_STRATUM_POWER = True
 
 
 @dataclass
@@ -180,10 +186,19 @@ def evaluate_gate(
                     f"(p={comp.p_value:.4f}, n={comp.n_queries})"
                 )
         if not math.isinf(mde) and mde > STRATUM_TOLERANCE:
-            res.warnings.append(
+            # Promoted from warning to BLOCKER. An audit showed every stratum here is
+            # underpowered by 5-18x (MDE 0.10-0.37 against a 0.02 tolerance), so rule 3
+            # could essentially never fire and "no regression detected" was reporting an
+            # absence of statistical power as though it were evidence of safety.
+            msg = (
                 f"stratum '{stratum}' UNDERPOWERED: n={comp.n_queries}, smallest detectable "
-                f"effect {mde:.4f} > tolerance {STRATUM_TOLERANCE}. 'No regression' here is weak evidence."
+                f"effect {mde:.4f} >> tolerance {STRATUM_TOLERANCE}. 'No regression' here is "
+                f"an absence of power, not evidence of safety."
             )
+            if REQUIRE_STRATUM_POWER:
+                res.blockers.append(msg)
+            else:
+                res.warnings.append(msg)
 
     # --- Rule 4: no_answer behaviour ----------------------------------------
     bna, cna = b_str.get("no_answer", {}), c_str.get("no_answer", {})
@@ -207,6 +222,13 @@ def evaluate_gate(
     b_unj, c_unj = aggregate(baseline, "unjudged@10"), aggregate(candidate, "unjudged@10")
     if b_unj is not None and c_unj is not None:
         res.comparisons["unjudged@10"] = {"mean_a": b_unj, "mean_b": c_unj, "delta": c_unj - b_unj}
+        if c_unj > UNJUDGED_ABSOLUTE_MAX:
+            res.blockers.append(
+                f"POOL TOO SHALLOW: unjudged@10={c_unj:.3f} exceeds {UNJUDGED_ABSOLUTE_MAX}. "
+                f"Most of what this configuration returns has never been judged, so its "
+                f"score is an underestimate of unknown size and no comparison between "
+                f"configurations is interpretable. Pool and judge before running the loop."
+            )
         if c_unj - b_unj > UNJUDGED_SPIKE:
             res.blockers.append(
                 f"MEASUREMENT UNRELIABLE: unjudged@10 rose {b_unj:.3f} -> {c_unj:.3f}. The candidate "

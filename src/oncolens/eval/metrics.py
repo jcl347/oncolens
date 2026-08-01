@@ -27,6 +27,10 @@ from collections.abc import Mapping, Sequence
 # A document counts as "relevant" for set-based metrics at or above this grade.
 REL_THRESHOLD = 1
 
+#: bpref needs a usable denominator. Below this many judged negatives it is noise, so it
+#: is reported as undefined rather than fed into the consensus panel.
+MIN_JUDGED_NEGATIVES_FOR_BPREF = 10
+
 
 def _relevant_ids(judgments: Mapping[str, int], threshold: int = REL_THRESHOLD) -> set[str]:
     return {d for d, g in judgments.items() if g >= threshold}
@@ -113,9 +117,13 @@ def bpref(ranking: Sequence[str], judgments: Mapping[str, int]) -> float | None:
     R, N = len(rel), len(nonrel)
     if R == 0:
         return None
-    if N == 0:
-        # No judged negatives: bpref degenerates to 1.0 for any ranking containing the
-        # relevant docs. Returning None is honest — the metric carries no signal here.
+    if N < MIN_JUDGED_NEGATIVES_FOR_BPREF:
+        # With a denominator of min(R, N), a handful of judged negatives makes bpref
+        # swing wildly: at N=2, a single judged-nonrelevant document ranked above a
+        # relevant one erases half that document's credit. An audit measured a mean
+        # denominator of 2.0 on this qrels, where bpref is noise rather than a
+        # robustness signal. Returning None is honest; averaging it into a consensus
+        # vote would not be.
         return None
     denom = min(R, N)
     seen_nonrel = 0

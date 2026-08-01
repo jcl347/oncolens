@@ -10,12 +10,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DATA = REPO_ROOT / "data"
+
+
+def data_dir() -> Path:
+    """Resolved at call time, not import time.
+
+    Binding this at import would silently ignore ONCOLENS_DATA whenever any module in the
+    package was imported first — which is exactly the failure the loop smoke test caught.
+    """
+    return Path(os.environ.get("ONCOLENS_DATA", REPO_ROOT / "data"))
 
 
 def _read_jsonl(path: Path) -> Iterator[tuple[int, dict]]:
@@ -75,7 +84,7 @@ class Dataset:
 
 
 def load_corpus(corpus_dir: Path | None = None) -> list[dict]:
-    d = corpus_dir or (DATA / "corpus")
+    d = corpus_dir or (data_dir() / "corpus")
     docs: list[dict] = []
     seen: set[str] = set()
     for path in sorted(d.glob("*.jsonl")):
@@ -93,7 +102,7 @@ def load_corpus(corpus_dir: Path | None = None) -> list[dict]:
 
 
 def load_queries(qrels_dir: Path | None = None) -> list[Query]:
-    d = qrels_dir or (DATA / "qrels")
+    d = qrels_dir or (data_dir() / "qrels")
     out: list[Query] = []
     seen: set[str] = set()
     for path in sorted(d.glob("*.jsonl")):
@@ -159,8 +168,8 @@ def load_dataset(*, strict: bool = True) -> Dataset:
         "mean_judged_per_query": (
             sum(len(q.judgments) for q in queries) / len(queries) if queries else 0.0
         ),
-        "corpus_sha": _sha_of(DATA / "corpus"),
-        "qrels_sha": _sha_of(DATA / "qrels"),
+        "corpus_sha": _sha_of(data_dir() / "corpus"),
+        "qrels_sha": _sha_of(data_dir() / "qrels"),
     }
     return Dataset(docs=docs, queries=queries, integrity=integrity)
 

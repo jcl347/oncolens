@@ -20,7 +20,7 @@ from oncolens import configs as C  # noqa: E402
 from oncolens.contexts import assert_no_label_leakage, build_contexts  # noqa: E402
 from oncolens.data import load_dataset  # noqa: E402
 from oncolens.experiment import build_retriever  # noqa: E402
-from oncolens.loop import EXPERIMENTS, final_test_evaluation, load_champion, run_iteration  # noqa: E402
+from oncolens.loop import _experiments, final_test_evaluation, load_champion, run_iteration  # noqa: E402
 from oncolens.retrieval.chunking import chunk_corpus  # noqa: E402
 from oncolens.retrieval.expansion import Lexicon, contamination_report  # noqa: E402
 from oncolens.retrieval.pipeline import RetrievalConfig  # noqa: E402
@@ -169,7 +169,7 @@ def cmd_test() -> int:
         return 1
     champion = RetrievalConfig(**saved["config"])
     out = final_test_evaluation(champion, C.BASELINE, dataset=ds, lexicon=lex, contexts=ctx)
-    (EXPERIMENTS / "test_report.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
+    (_experiments() / "test_report.json").write_text(json.dumps(out, indent=2), encoding="utf-8")
     print(json.dumps(out, indent=2))
     return 0
 

@@ -17,6 +17,7 @@ Deliberate properties:
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,9 +31,17 @@ from .retrieval.expansion import Lexicon
 from .retrieval.pipeline import RetrievalConfig, Retriever
 
 REPO = Path(__file__).resolve().parents[2]
-EXPERIMENTS = REPO / "experiments"
-CHAMPION_PATH = EXPERIMENTS / "champion.json"
-LEDGER_PATH = EXPERIMENTS / "ledger.json"
+from .experiment import results_dir as _results_dir
+def _experiments() -> Path:
+    return _results_dir()
+
+
+def _champion_path() -> Path:
+    return _experiments() / "champion.json"
+
+
+def _ledger_path() -> Path:
+    return _experiments() / "ledger.json"
 
 #: Config fields that change the *index* (as opposed to only query-time behaviour).
 _INDEX_FIELDS = (
@@ -75,14 +84,16 @@ class IterationOutcome:
 
 
 def load_champion() -> dict | None:
-    if CHAMPION_PATH.exists():
-        return json.loads(CHAMPION_PATH.read_text(encoding="utf-8"))
+    p = _champion_path()
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
     return None
 
 
 def save_champion(config: RetrievalConfig, result: ExperimentResult) -> None:
-    CHAMPION_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CHAMPION_PATH.write_text(
+    p = _champion_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
         json.dumps({"config": config.as_dict(), "aggregate": result.aggregate,
                     "per_stratum": result.per_stratum}, indent=2, sort_keys=True),
         encoding="utf-8",
@@ -101,7 +112,7 @@ def run_iteration(
 ) -> IterationOutcome:
     ds = dataset or load_dataset()
     lex = lexicon if lexicon is not None else Lexicon.load(REPO / "data" / "vocab" / "lexicon.json")
-    ledger = Ledger.load(LEDGER_PATH)
+    ledger = Ledger.load(_ledger_path())
     cache = RetrieverCache(ds, lex, contexts)
     strata = ds.strata()
 
@@ -219,7 +230,7 @@ def run_iteration(
         ]
 
     report = "\n".join(lines)
-    out = EXPERIMENTS / f"iteration_{iteration:02d}.md"
+    out = _experiments() / f"iteration_{iteration:02d}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(report, encoding="utf-8")
 
@@ -252,14 +263,14 @@ def final_test_evaluation(
     ds = dataset or load_dataset()
     lex = lexicon if lexicon is not None else Lexicon.load(REPO / "data" / "vocab" / "lexicon.json")
     cache = RetrieverCache(ds, lex, contexts)
-    ledger = Ledger.load(LEDGER_PATH)
+    ledger = Ledger.load(_ledger_path())
 
     base = run_experiment(ds, baseline_cfg, split="test", lexicon=lex,
                           contexts=contexts, retriever=cache.get(baseline_cfg))
     champ = run_experiment(ds, champion_cfg, split="test", lexicon=lex,
                            contexts=contexts, retriever=cache.get(champion_cfg))
-    base.save(EXPERIMENTS / "test" / f"{baseline_cfg.name}.json")
-    champ.save(EXPERIMENTS / "test" / f"{champion_cfg.name}.json")
+    base.save(_experiments() / "test" / f"{baseline_cfg.name}.json")
+    champ.save(_experiments() / "test" / f"{champion_cfg.name}.json")
     ledger.record(iteration=999, config_name=champion_cfg.name, split="test", primary=champ.primary)
 
     gate = evaluate_gate(base.per_query, champ.per_query, ds.strata(), ledger)

@@ -9,6 +9,7 @@ documents a new configuration surfaced, and the incomplete-judgment bias becomes
 from __future__ import annotations
 
 import json
+import os
 import platform
 import sys
 from collections.abc import Sequence
@@ -21,7 +22,10 @@ from .eval.metrics import CONSENSUS_METRICS, PRIMARY, evaluate_query
 from .retrieval.expansion import Lexicon
 from .retrieval.pipeline import RetrievalConfig, Retriever
 
-RESULTS_DIR = Path(__file__).resolve().parents[2] / "experiments"
+def results_dir() -> Path:
+    """Resolved at call time so ONCOLENS_EXPERIMENTS works regardless of import order."""
+    return Path(os.environ.get("ONCOLENS_EXPERIMENTS",
+                               Path(__file__).resolve().parents[2] / "experiments"))
 
 #: How deep each run is recorded for later pooling. Deeper pools cost judging effort but
 #: are the only defence against measuring a new system against a stale pool.
@@ -49,7 +53,7 @@ class ExperimentResult:
         return self.aggregate.get(PRIMARY, 0.0)
 
     def save(self, path: Path | None = None) -> Path:
-        p = path or (RESULTS_DIR / self.split / f"{self.name}.json")
+        p = path or (results_dir() / self.split / f"{self.name}.json")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(asdict(self), indent=2, sort_keys=True), encoding="utf-8")
         return p

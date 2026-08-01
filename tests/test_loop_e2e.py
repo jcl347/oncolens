@@ -68,11 +68,11 @@ check("report includes failure analysis", "Failure analysis" in out.report)
 # Dominance bounds need >=1 comparable dev query. With only 4 distinct information
 # needs in this fixture, need-based clustering can leave dev too small — that is
 # correct behaviour for a degenerate fixture, not a regression.
-if len(dev) >= 2:
+if sum(1 for q in dev if any(g >= 1 for g in q.judgments.values())) >= 2:
     check("report includes dominance bounds",
           "dominates" in out.report or "UNDETERMINED" in out.report)
 else:
-    print(f"  SKIP  dominance bounds (dev split has only {len(dev)} queries)")
+    print(f"  SKIP  dominance bounds (dev split has too few answerable queries: {len(dev)})")
 check("iteration report written to disk", (d / "experiments" / "iteration_01.md").exists())
 check("ledger recorded every draw",
       len(json.loads((d / "experiments" / "ledger.json").read_text())["entries"]) == 4,

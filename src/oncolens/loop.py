@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .data import Dataset, load_dataset
+from .eval.bounds import dominance_report
 from .eval.gate import GateResult, evaluate_gate
 from .eval.stats import Ledger
 from .experiment import ExperimentResult, format_summary, pool_gaps, run_experiment
@@ -136,6 +137,13 @@ def run_iteration(
         if gate.promoted:
             promoted.append(cfg.name)
 
+        # Bounds-based dominance: does the verdict survive every possible labelling of
+        # the documents nobody has judged? A gate PASS with an UNDETERMINED dominance
+        # verdict is a provisional result, and the report says so rather than implying
+        # more certainty than the judgments support.
+        qrels = {q.query_id: q.judgments for q in ds.split(split)}
+        dom = dominance_report(base_res.runs, res.runs, qrels, k=10)
+
         lines += [
             f"## `{cfg.name}`",
             "",
@@ -148,6 +156,15 @@ def run_iteration(
             "```",
             "",
         ]
+        if dom is not None:
+            lines += ["```", dom.summary(), "```", ""]
+            if gate.promoted and dom.robust_verdict.startswith("UNDETERMINED"):
+                lines += [
+                    "> Note: this challenger cleared the gate on point estimates, but the "
+                    "bound intervals overlap. The promotion is provisional until the pool "
+                    "gap below is judged.",
+                    "",
+                ]
 
     # Promote the passing challenger with the best primary metric.
     new_champion = champion_cfg

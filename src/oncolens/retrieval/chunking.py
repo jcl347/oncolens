@@ -61,6 +61,36 @@ class Chunk:
         return "\n".join(parts)
 
 
+def _force_split(text: str, base_offset: int) -> list[tuple[str, int, int]]:
+    """Last-resort split at whitespace, for text with no sentence boundaries at all.
+
+    MEASURED: sentence splitting silently fails on two real shapes — tab-separated tables
+    lifted out of JATS, and reference blocks written without ``. Capital`` boundaries. Both
+    were emitted as single "passages", the largest **48,763 characters**. That breaks the
+    product requirement directly: a passage that large cannot be shown as *the place a
+    concept was mentioned*, and it also exceeds an embedding model's input limit.
+
+    So ``HARD_CAP`` is enforced as an invariant here rather than left as an aspiration of
+    the sentence splitter.
+    """
+    out: list[tuple[str, int, int]] = []
+    pos = 0
+    n = len(text)
+    while pos < n:
+        end = min(pos + HARD_CAP, n)
+        if end < n:
+            # Prefer a whitespace boundary so words are never cut in half.
+            brk = text.rfind(" ", pos + HARD_CAP // 2, end)
+            if brk > pos:
+                end = brk
+        piece = text[pos:end].strip()
+        if piece:
+            start = base_offset + pos + (len(text[pos:end]) - len(text[pos:end].lstrip()))
+            out.append((piece, start, start + len(piece)))
+        pos = end if end > pos else n
+    return out
+
+
 def _split_long_paragraph(para: str, base_offset: int) -> list[tuple[str, int, int]]:
     sents = _SENT.split(para)
     out: list[tuple[str, int, int]] = []
@@ -80,7 +110,16 @@ def _split_long_paragraph(para: str, base_offset: int) -> list[tuple[str, int, i
     tail = para[cur_start - base_offset :].strip()
     if tail:
         out.append((tail, cur_start, cur_start + len(tail)))
-    return out
+
+    # Enforce the cap. A "sentence" longer than HARD_CAP means the splitter found no
+    # boundary, which happens on tables and on citation blocks — see _force_split.
+    capped: list[tuple[str, int, int]] = []
+    for text, start, end in out:
+        if len(text) <= HARD_CAP:
+            capped.append((text, start, end))
+        else:
+            capped.extend(_force_split(text, start))
+    return capped
 
 
 #: Strip bibliographies before chunking. MEASURED on real PMC text: 18.4% of full-text

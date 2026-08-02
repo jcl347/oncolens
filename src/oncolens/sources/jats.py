@@ -120,7 +120,11 @@ def parse_references(xml: str) -> dict[str, Reference]:
 
 
 _BODY = re.compile(r"<body\b.*?</body>", re.S)
-_XREF = re.compile(r"<xref\b[^>]*ref-type=\"bibr\"[^>]*>", re.I)
+#: The WHOLE element, content included. Matching only the opening tag leaves the rendered
+#: marker text behind, so a mined query came out as "...in cervical cancer cells [ 29 , 34 ]"
+#: — the bracket numerals survived into the query string as meaningless tokens.
+_XREF = re.compile(r"<xref\b[^>]*ref-type=\"bibr\"[^>]*>.*?</xref>|<xref\b[^>]*ref-type=\"bibr\"[^>]*/>",
+                   re.I | re.S)
 _RID_ATTR = re.compile(r"\brid=\"([^\"]+)\"")
 #: Sentence boundary that tolerates the abbreviations biomedical prose is full of.
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])")
@@ -185,9 +189,15 @@ def extract_citation_contexts(xml: str, *, min_chars: int = 60,
         if not ids:
             continue
         clean = _WS.sub(" ", re.sub(r"\x00\d+\x00", "", sent)).strip()
-        # Strip the residual bracket punctuation left where the marker was.
-        clean = re.sub(r"\s*\[\s*[,\-–\s]*\]", "", clean)
-        clean = re.sub(r"\(\s*[,;\-–\s]*\)", "", clean).strip()
+        # Strip the residual punctuation left where the marker was. Journals render
+        # citations as "[3]", "(3)", superscripts, and ranges "7-13"; whichever form was
+        # used, the brackets and any separators survive the element removal.
+        clean = re.sub(r"\s*[\[(]\s*[,;\-–\s]*[\])]", "", clean)
+        clean = re.sub(r"\s+([,.;:])", r"\1", clean)
+        clean = re.sub(r"\s{2,}", " ", clean).strip()
+        # A sentence that is now only a fragment of what it was is not a usable query.
+        if clean.endswith(("and", "or", "in", "of", "the", "with", "by", "to")):
+            continue
         if not (min_chars <= len(clean) <= max_chars):
             continue
         rids: list[str] = []

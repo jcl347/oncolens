@@ -180,18 +180,68 @@ class OpenAIBackend:
     def fit(self, texts: Sequence[str]) -> None:
         return None  # no corpus fitting required
 
+    def _embed_batch(self, client, batch: list[str], attempt: int = 0) -> list[list[float]]:
+        """One API call, retrying on rate limits.
+
+        A 1M tokens-per-minute ceiling is reached in seconds when embedding a 59k-passage
+        corpus, so this is the normal path, not an exceptional one. Backoff is exponential
+        with a cap; the request is not split, because a 429 is about *rate*, not size.
+        """
+        import time
+
+        kw: dict = {"model": self.model, "input": batch}
+        if self.dimensions:
+            kw["dimensions"] = self.dimensions
+        try:
+            resp = client.embeddings.create(**kw)
+        except Exception as exc:  # noqa: BLE001
+            name = type(exc).__name__
+            transient = name in ("RateLimitError", "APIConnectionError", "APITimeoutError",
+                                 "InternalServerError")
+            if not transient or attempt >= 6:
+                raise
+            time.sleep(min(2.0 * (2 ** attempt), 60.0))
+            return self._embed_batch(client, batch, attempt + 1)
+        # The API does not guarantee ordering; ``index`` does.
+        return [d.embedding for d in sorted(resp.data, key=lambda d: d.index)]
+
+    #: ``text-embedding-3-*`` reject inputs over 8192 tokens. Measured on this corpus,
+    #: 1 token ~ 3.7 characters, so 24000 characters is a safe ceiling with headroom for
+    #: token-dense text (identifiers, tables). Truncation here is a **safety net, not the
+    #: fix**: an oversized passage is a chunking defect, and chunking.py enforces the cap.
+    #: Silently failing the whole batch because one passage is long would be worse.
+    MAX_INPUT_CHARS = 24000
+
     def _encode(self, texts: Sequence[str]) -> np.ndarray:
         client = self._client_or_raise()
         out: list[list[float]] = []
         for i in range(0, len(texts), self.batch):
-            batch = [t if t.strip() else " " for t in texts[i : i + self.batch]]
-            kw = {"model": self.model, "input": batch}
-            if self.dimensions:
-                kw["dimensions"] = self.dimensions
-            resp = client.embeddings.create(**kw)
-            # The API does not guarantee ordering; ``index`` does.
-            out.extend(d.embedding for d in sorted(resp.data, key=lambda d: d.index))
+            batch = [(t[: self.MAX_INPUT_CHARS] if t.strip() else " ")
+                     for t in texts[i : i + self.batch]]
+            out.extend(self._embed_batch(client, batch))
         return _l2(np.asarray(out, dtype=np.float64))
+
+    def encode_documents_cached(self, texts: Sequence[str], cache_dir) -> np.ndarray:
+        """Encode with a disk cache keyed by (model, dimensions, corpus content).
+
+        Re-embedding a whole corpus to change one retrieval parameter costs money and
+        several minutes, which is enough friction to discourage running the comparison at
+        all — and an experiment that is too expensive to repeat stops being an experiment.
+        """
+        import hashlib
+        from pathlib import Path
+
+        h = hashlib.sha1()
+        h.update(f"{self.model}|{self.dimensions}|{len(texts)}".encode())
+        for t in texts:
+            h.update(t[:512].encode("utf-8", "ignore"))
+        path = Path(cache_dir) / f"emb_{self.name}_{h.hexdigest()[:16]}.npy"
+        if path.exists():
+            return np.load(path)
+        vecs = self.encode_documents(texts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(path, vecs)
+        return vecs
 
     def encode_documents(self, texts: Sequence[str]) -> np.ndarray:
         return self._encode(texts)

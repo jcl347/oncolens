@@ -71,6 +71,22 @@ _CONTENTLESS = re.compile(
     re.I,
 )
 
+#: **Agreement pointers.** "These results are consistent with previous research in
+#: osteosarcoma and cervical cancer cells [29,34]" states something about the *citing*
+#: paper's results and nothing about what [29] or [34] actually found. As a query it asks
+#: for a paper that agrees with an unstated finding, which no retrieval system can answer
+#: and which therefore measures noise. Distinct from ``_CONTENTLESS`` because these
+#: sentences are long and contain topic words, so the length and assertiveness filters pass
+#: them.
+_AGREEMENT_POINTER = re.compile(
+    r"\b(these|our|the present|this|the above|similar)\s+"
+    r"(results?|findings?|data|observations?|conclusions?|study|studies|work)\b"
+    r".{0,60}?\b(consistent|in agreement|in line|agree|concur|corroborat|accord)\b|"
+    r"^\s*(similarly|likewise|in contrast|consistent with|in agreement with|"
+    r"in line with)\b.{0,80}(previous|prior|earlier|other|another)\b",
+    re.I,
+)
+
 #: A citing sentence is only useful as a query if it makes a technical assertion. Requiring
 #: a verb of finding/mechanism is a cheap proxy that removes bare pointer sentences without
 #: hand-listing biomedical vocabulary (which would bias the benchmark toward terms we
@@ -107,7 +123,7 @@ def is_useful_query(sentence: str) -> bool:
     s = sentence.strip()
     if not (MIN_QUERY_CHARS <= len(s) <= MAX_QUERY_CHARS):
         return False
-    if _CONTENTLESS.search(s):
+    if _CONTENTLESS.search(s) or _AGREEMENT_POINTER.search(s):
         return False
     if not _ASSERTIVE.search(s):
         return False

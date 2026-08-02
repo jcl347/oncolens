@@ -97,15 +97,17 @@ def main() -> int:
           f"{len(qids)} queries, {sum(len(v) for v in qrels.values())} judgments")
 
     # --- build every index once, then reuse across systems --------------------
-    bm25 = BM25Index()
-    bm25.index([{"chunk_id": c["chunk_id"], "text": c["text"]} for c in chunks])
+    bm25 = BM25Index().build(chunk_ids, texts)
     dense_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     wanted = {s.replace("hybrid-", "").replace("+rerank", "") for s in args.systems}
     for backend_name in sorted(wanted - {"bm25", ""}):
         print(f"encoding with {backend_name}...")
         be = make_backend(backend_name, dim=args.dim)
         be.fit(texts)
-        dvecs = be.encode_documents(texts)
+        if hasattr(be, "encode_documents_cached"):
+            dvecs = be.encode_documents_cached(texts, local_data_dir() / "emb_cache")
+        else:
+            dvecs = be.encode_documents(texts)
         qvecs = be.encode_queries([queries[q] for q in qids])
         dense_cache[backend_name] = (qvecs, dvecs)
 

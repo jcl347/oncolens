@@ -134,6 +134,41 @@ captions in it were useful.
 Earlier notes here claimed a ~1-in-6 miss rate from an ad-hoc sample; **the measured rate on
 labelled data is 3/60 (5%)**. Use the measured number.
 
+#### The benchmark certified a rail that failed in production — read this one twice
+
+After the rewrite scored 60/60 on labelled data, the **live index** still held 1,394
+reference-shaped passages (2.35%). The mean was unremarkable; **the distribution was the
+diagnostic**. They were concentrated — 215 in one document, 124 in another, 93 in a third —
+and concentration means *undetected bibliographies*, not threshold noise.
+
+Cause: `MAX_SHARE = 0.60`, which this file previously justified with "the largest true
+bibliography in the labelled set is 42.4%, so it should never bind on real input."
+**It bound on 180 of 1,739 documents.** All 60 labelled articles were primary research
+papers. A **review article inverts the ratio**: PMC10958066, *"TGF-β signaling in health,
+disease, and therapeutics"*, carries a single **480,996-character bibliography that is 80.6%
+of the document**, so the suffix search broke on its first iteration.
+
+Share was the wrong evidence. A review legitimately *is* mostly references. What must never
+happen is deleting a document to nothing — an **absolute** question, not a proportional one.
+The guard is now tiered:
+
+| Condition | Allowed |
+|---|---|
+| `share ≤ 0.60` | ordinary evidence suffices |
+| `share ≤ 0.92` **and** `density ≥ 0.70` | unambiguous evidence required |
+| surviving body `< 1500` chars | **always refused** |
+
+| Document | Dropped | Body retained |
+|---|---|---|
+| PMC10958066 | 80.7% | 115,435 chars |
+| PMC11607834 | 61.1% | 118,851 chars |
+| PMC11442786 | 63.0% | 80,984 chars |
+
+Zero regression on the 60 labelled articles. **The transferable lesson is about the
+benchmark, not the threshold**: a sample drawn from one document class certified a rule that
+failed on another. When a component passes its benchmark, check its behaviour on the live
+corpus and look at the *distribution* of failures, not the average.
+
 **Stale rows are fixed.** `neon_store.upsert_chunks` now defaults to `replace=True`, which
 deletes a document's existing chunks before inserting. Stripping removes ~20% of an article,
 so re-ingestion previously left surplus rows behind and the metrics described a corpus the

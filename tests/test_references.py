@@ -164,6 +164,45 @@ def test_source_exclusion_is_enforced_not_merely_documented():
     raise AssertionError("citing document was allowed into its own results")
 
 
+def test_citation_markers_do_not_leak_into_the_query():
+    """The mined query must not carry the rendered citation numerals.
+
+    The first version matched only the ``<xref>`` opening tag, so a query came out as
+    "...in cervical cancer cells [ 29 , 34 ]" — the numerals survived as meaningless
+    tokens in text that is then handed to a retriever as a search string.
+    """
+    from oncolens.sources.jats import extract_citation_contexts
+
+    xml = (
+        "<article><body><sec><p>MET amplification was identified as the dominant "
+        "mechanism of acquired resistance to osimertinib in this cohort "
+        '[<xref ref-type="bibr" rid="B29">29</xref>, '
+        '<xref ref-type="bibr" rid="B34">34</xref>]. '
+        "</p></sec></body></article>"
+    )
+    ctxs = extract_citation_contexts(xml)
+    assert len(ctxs) == 1, f"expected one context, got {len(ctxs)}"
+    sent = ctxs[0].sentence
+    assert "29" not in sent and "34" not in sent, f"marker leaked: {sent!r}"
+    assert "[" not in sent and "]" not in sent, f"bracket survived: {sent!r}"
+    assert sent.endswith("cohort."), f"sentence mangled: {sent!r}"
+    assert set(ctxs[0].rids) == {"B29", "B34"}
+
+
+def test_agreement_pointers_are_rejected():
+    """Sentences about the CITING paper's own results describe nothing cited."""
+    assert not is_useful_query(
+        "These results are consistent with those of previous research conducted in "
+        "osteosarcoma and cervical cancer cell lines.")
+    assert not is_useful_query(
+        "Our findings are in agreement with earlier studies of the same pathway in "
+        "pancreatic adenocarcinoma models.")
+    # ...but a sentence that says WHAT the cited work found must survive.
+    assert is_useful_query(
+        "Overexpression of AIB1 enhances estrogen receptor transcriptional activity and "
+        "can convert tamoxifen from an antagonist into an agonist.")
+
+
 def test_target_cap_limits_popularity_bias():
     sent = ("MET amplification was identified as the dominant driver of acquired "
             "resistance to osimertinib in cohort {}.")
@@ -172,6 +211,42 @@ def test_target_cap_limits_popularity_bias():
     labels, _ = build_labels(per_source, {f"PAPER:PMID{i}" for i in range(1, 12)}
                              | {"PAPER:PMID999"}, max_per_target=4)
     assert sum(1 for lb in labels if lb.target_doc_id == "PAPER:PMID999") == 4
+
+
+
+def test_hard_cap_is_an_invariant_not_an_aspiration():
+    """Sentence splitting silently fails on tables and citation blocks.
+
+    MEASURED on the live index: 615 chunks exceeded HARD_CAP and the largest was 48,763
+    characters — a tab-separated trial table and a reference block, neither of which
+    contains a ``. Capital`` boundary to split on. A passage that size cannot be shown as
+    'the place a concept was mentioned', and it also exceeds an embedding model's input
+    limit.
+    """
+    from oncolens.retrieval.chunking import HARD_CAP, chunk_document
+
+    table = "\t".join(f"Gene{i}\tProtein{i}\tfunction of {i}" for i in range(2000))
+    refs = " ".join(f"Author{i} A Title of work {i} Journal 20{i%20:02d} 10.1000/x{i}"
+                    for i in range(600))
+    doc = {"doc_id": "T:1", "title": "t", "doc_type": "paper",
+           "sections": [{"name": "Body", "text": table + "\n\n" + refs}]}
+    chunks = chunk_document(doc)
+    assert chunks, "produced no chunks at all"
+    worst = max(len(c.text) for c in chunks)
+    # Runt-folding may append up to MIN_CHARS to a chunk, so allow modest slack.
+    assert worst <= HARD_CAP * 1.5, f"largest chunk {worst} chars exceeds cap {HARD_CAP}"
+
+
+def test_offsets_stay_valid_after_forced_splitting():
+    """Forced splits must still point at real spans, or citation display breaks."""
+    from oncolens.retrieval.chunking import chunk_document
+
+    text = "\t".join(f"col{i}\tvalue{i}" for i in range(1500))
+    doc = {"doc_id": "T:2", "title": "t", "doc_type": "paper",
+           "sections": [{"name": "Body", "text": text}]}
+    for c in chunk_document(doc):
+        assert c.start_char >= 0 and c.end_char > c.start_char
+        assert c.end_char <= len(text) + 2, f"offset {c.end_char} past end {len(text)}"
 
 
 if __name__ == "__main__":
@@ -186,3 +261,6 @@ if __name__ == "__main__":
             print(f"  FAIL  {fn.__name__}: {exc}")
     print(f"\n{len(fns) - failed}/{len(fns)} passed")
     raise SystemExit(1 if failed else 0)
+# NOTE: the runner block above must stay LAST in this file. It collects tests from
+# globals(), which is only populated up to the point of execution — functions defined
+# after it are silently never run, and the suite reports a green count that omits them.

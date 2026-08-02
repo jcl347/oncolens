@@ -167,32 +167,50 @@ def main() -> int:
     print(f"  {len(pmc_map)} of {len(records)} have PMC full text available")
 
     docs, skipped_licence, no_text = [], 0, 0
-    for rec in records:
+    # One unreachable article must not discard the whole job. A previous run died 45
+    # minutes in on a single transient SSLEOFError from S3, having written nothing,
+    # because the store write happens at the end. Transport failures are the expected
+    # case across ~3,400 requests, not an exception.
+    fetch_errors = 0
+    for i, rec in enumerate(records):
         doc = rec.to_corpus_doc()          # abstract + real MeSH descriptors
         pmcid = pmc_map.get(rec.pmid)
         if pmcid:
-            meta = pmc_cloud.fetch_metadata(pmcid, 1)
-            if meta:
-                if not pmc_cloud.license_allows(meta, args.license_policy):
-                    skipped_licence += 1
-                elif meta.get("is_retracted"):
-                    pass                    # never index a retracted article
-                else:
-                    text = pmc_cloud.fetch_full_text(pmcid, 1)
-                    if text:
-                        paras = [p.strip() for p in text.split("\n\n") if len(p.strip()) > 60]
-                        doc["sections"].append({"name": "Body", "text": "\n\n".join(paras)})
-                        doc["meta"].update({
-                            "pmcid": pmcid, "license_code": meta.get("license_code"),
-                            "full_text_chars": len(text), "source": "pmc_cloud",
-                        })
+            try:
+                meta = pmc_cloud.fetch_metadata(pmcid, 1)
+                if meta:
+                    if not pmc_cloud.license_allows(meta, args.license_policy):
+                        skipped_licence += 1
+                    elif meta.get("is_retracted"):
+                        pass                # never index a retracted article
                     else:
-                        no_text += 1
+                        text = pmc_cloud.fetch_full_text(pmcid, 1)
+                        if text:
+                            paras = [p.strip() for p in text.split("\n\n")
+                                     if len(p.strip()) > 60]
+                            doc["sections"].append({"name": "Body",
+                                                    "text": "\n\n".join(paras)})
+                            doc["meta"].update({
+                                "pmcid": pmcid, "license_code": meta.get("license_code"),
+                                "full_text_chars": len(text), "source": "pmc_cloud",
+                            })
+                        else:
+                            no_text += 1
+            except Exception as e:  # noqa: BLE001
+                fetch_errors += 1
+                if fetch_errors <= 5:
+                    print(f"  ! {pmcid}: {type(e).__name__} — keeping abstract only")
+                elif fetch_errors == 6:
+                    print("  ! (further fetch errors suppressed)")
         docs.append(doc)
+        if (i + 1) % 250 == 0:
+            print(f"  fetched {i+1}/{len(records)} "
+                  f"({sum(1 for d in docs if len(d['sections']) > 1)} with full text)")
 
     full = sum(1 for d in docs if any(s["name"] == "Body" for s in d["sections"]))
     print(f"  {full} documents with REAL full text; {skipped_licence} skipped by the "
-          f"'{args.license_policy}' licence policy; {no_text} had no text rendition")
+          f"'{args.license_policy}' licence policy; {no_text} had no text rendition; "
+          f"{fetch_errors} fetch errors (abstract retained)")
 
     chunks = chunk_corpus(docs)
     print(f"chunked into {len(chunks)} passages "

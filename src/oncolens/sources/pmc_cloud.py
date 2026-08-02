@@ -104,10 +104,45 @@ class CloudArticle:
         return f"s3://{BUCKET}/{self.key}"
 
 
+_SESSION = None
+
+
 def _session():
+    """A retrying session, reused across calls.
+
+    **Why retries are not optional here.** A 1,700-article ingest makes ~3,400 requests to
+    S3 over roughly 45 minutes, and a single transient
+    ``SSLEOFError: EOF occurred in violation of protocol`` killed one such run outright —
+    after 45 minutes, having written nothing, because the store write happens at the end.
+    At that request count a transport blip is not an exceptional event, it is the expected
+    case, and the job has to survive it.
+
+    Connection reuse also matters: a fresh TLS handshake per article is most of the wall
+    clock on a job like this.
+    """
+    global _SESSION
+    if _SESSION is not None:
+        return _SESSION
     import requests
+    from requests.adapters import HTTPAdapter
+
+    try:
+        from urllib3.util.retry import Retry
+        retry = Retry(
+            total=5, connect=5, read=5, status=5,
+            backoff_factor=1.0,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset({"GET", "HEAD"}),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry, pool_maxsize=16)
+    except Exception:  # noqa: BLE001 — urllib3 API drift must not break ingestion
+        adapter = HTTPAdapter(pool_maxsize=16)
+
     s = requests.Session()
+    s.mount("https://", adapter)
     s.headers.update({"User-Agent": "oncolens/0.1 (research retrieval benchmark)"})
+    _SESSION = s
     return s
 
 

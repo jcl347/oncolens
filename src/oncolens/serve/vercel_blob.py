@@ -28,9 +28,19 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 API = "https://blob.vercel-storage.com"
 API_VERSION = "7"
+
+#: Private stores are served from a DIFFERENT host (<store>.private.blob.vercel-storage.com)
+#: and reject every REST upload with "Cannot use public access on a private store" — no
+#: combination of x-access / x-blob-access / api-version gets past it. The official Node
+#: SDK negotiates whatever private stores actually use, so uploads route through a small
+#: persistent Node bridge instead of reverse-engineering an undocumented handshake that
+#: would break silently the next time Vercel changes it.
+_BRIDGE = Path(__file__).resolve().parents[3] / "scripts" / "blob_bridge.mjs"
+_bridge_proc = None
 
 
 @dataclass(frozen=True)
@@ -59,9 +69,43 @@ def _session():
     return requests.Session()
 
 
+def _bridge_call(req: dict) -> dict:
+    """Send one request to the persistent Node bridge and read one response.
+
+    The process is reused across calls: spawning Node per article would dominate runtime
+    on a multi-thousand-document ingest.
+    """
+    global _bridge_proc
+    import json as _json
+    import subprocess
+
+    if not _BRIDGE.exists():
+        raise RuntimeError(f"blob bridge missing at {_BRIDGE}; run `npm install @vercel/blob`")
+
+    if _bridge_proc is None or _bridge_proc.poll() is not None:
+        _bridge_proc = subprocess.Popen(
+            ["node", str(_BRIDGE)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", bufsize=1,
+            env={**os.environ, "BLOB_READ_WRITE_TOKEN": _token()},
+        )
+
+    _bridge_proc.stdin.write(_json.dumps(req) + "\n")
+    _bridge_proc.stdin.flush()
+    line = _bridge_proc.stdout.readline()
+    if not line:
+        err = _bridge_proc.stderr.read()[:300] if _bridge_proc.stderr else ""
+        raise RuntimeError(f"blob bridge died: {err}")
+    resp = _json.loads(line)
+    if not resp.get("ok"):
+        raise RuntimeError(f"blob: {resp.get('error')}")
+    return resp
+
+
 def put_text(
     pathname: str, content: str, *, content_type: str = "text/plain; charset=utf-8",
     add_random_suffix: bool = False, cache_max_age: int = 31536000,
+    access: str = "private",
 ) -> BlobRef:
     """Upload text and return its public URL.
 
@@ -69,23 +113,12 @@ def put_text(
     re-ingesting the same article overwrites rather than accumulating duplicates — which
     matters when an ingestion job is re-run after a partial failure.
     """
-    s = _session()
-    body = content.encode("utf-8")
-    r = s.put(
-        f"{API}/{pathname.lstrip('/')}",
-        data=body,
-        headers={
-            "authorization": f"Bearer {_token()}",
-            "x-api-version": API_VERSION,
-            "x-content-type": content_type,
-            "x-add-random-suffix": "1" if add_random_suffix else "0",
-            "x-cache-control-max-age": str(cache_max_age),
-        },
-        timeout=180,
-    )
-    r.raise_for_status()
-    data = r.json()
-    return BlobRef(url=data["url"], pathname=data.get("pathname", pathname), size=len(body))
+    resp = _bridge_call({
+        "op": "put", "pathname": pathname.lstrip("/"),
+        "content": content, "contentType": content_type, "access": access,
+    })
+    return BlobRef(url=resp["url"], pathname=resp.get("pathname", pathname),
+                   size=resp.get("size", len(content.encode("utf-8"))))
 
 
 def put_json(pathname: str, obj: dict, **kw) -> BlobRef:
@@ -93,9 +126,9 @@ def put_json(pathname: str, obj: dict, **kw) -> BlobRef:
 
 
 def get_text(url: str) -> str:
-    """Blob URLs are public by default; no auth needed to read."""
+    """Read a blob. Private stores require the token, so it is always sent."""
     s = _session()
-    r = s.get(url, timeout=120)
+    r = s.get(url, headers={"authorization": f"Bearer {_token()}"}, timeout=120)
     r.raise_for_status()
     return r.text
 
@@ -121,13 +154,7 @@ def list_blobs(prefix: str = "", limit: int = 1000) -> list[dict]:
 
 
 def delete(urls: list[str]) -> None:
-    s = _session()
-    r = s.post(f"{API}/delete", json={"urls": urls},
-               headers={"authorization": f"Bearer {_token()}",
-                        "x-api-version": API_VERSION,
-                        "content-type": "application/json"},
-               timeout=120)
-    r.raise_for_status()
+    _bridge_call({"op": "del", "urls": urls})
 
 
 def blob_path_for(pmcid: str, version: int = 1, kind: str = "txt") -> str:

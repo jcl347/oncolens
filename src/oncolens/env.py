@@ -70,3 +70,29 @@ def describe_credentials() -> list[str]:
             optional = name == "NCBI_API_KEY"
             out.append(f"  {name:<24} MISSING{' (optional)' if optional else ''}")
     return out
+
+
+def local_data_dir() -> Path:
+    """Where locally-written artifacts go — deliberately OUTSIDE the repo.
+
+    The repo commonly lives inside a synced folder (OneDrive/Dropbox). Writing a churning
+    corpus there causes sync storms and file locks; this project already hit a OneDrive
+    lock that blocked a directory delete mid-run. Ingested data belongs in Neon and Blob,
+    and anything that must land on disk goes to a local application-data path instead.
+
+    Override with ONCOLENS_LOCAL_DIR.
+    """
+    import os
+    import tempfile
+
+    explicit = os.environ.get("ONCOLENS_LOCAL_DIR")
+    if explicit:
+        d = Path(explicit)
+    elif os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+        d = Path(base) / "oncolens"
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")
+        d = Path(base) / "oncolens"
+    d.mkdir(parents=True, exist_ok=True)
+    return d

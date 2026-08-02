@@ -44,7 +44,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
-from oncolens.env import describe_credentials, load_env  # noqa: E402
+from oncolens.env import describe_credentials, load_env, local_data_dir  # noqa: E402
 from oncolens.retrieval.chunking import chunk_corpus  # noqa: E402
 from oncolens.sources import pmc_cloud, pubmed  # noqa: E402
 
@@ -242,12 +242,14 @@ def main() -> int:
         print(f"  {len(qrels)} MeSH concept queries -> Blob (qrels/mesh.json)")
     else:
         import json as _json
-        qp = REPO / "data" / "qrels"
+        # NOT REPO/data: the repo may sit inside OneDrive, and ingested data
+        # must never land in a synced folder.
+        qp = local_data_dir() / "qrels"
         qp.mkdir(parents=True, exist_ok=True)
         with open(qp / "mesh.jsonl", "w", encoding="utf-8") as f:
             for q in qrels:
                 f.write(_json.dumps(q, ensure_ascii=False) + "\n")
-        print(f"  {len(qrels)} MeSH concept queries -> data/qrels/mesh.jsonl")
+        print(f"  {len(qrels)} MeSH concept queries -> {qp / 'mesh.jsonl'}")
 
     print("\nDone. Nothing was written to the repository or to OneDrive.")
     return 0

@@ -18,8 +18,9 @@ context rather than paraphrased.
 | Retrieval + evaluation harness | Built, tested, working |
 | Real data ingestion (PubMed + PMC full text) | **Verified working** — 24/24 records with real NLM MeSH indexing, verbatim full text |
 | Vercel site (search, compare, eval panel, WebGL) | Built; needs `npm install` + deploy |
-| Vercel storage (Blob + Neon/pgvector) | Code + setup guide ready; not yet provisioned |
-| **A real corpus ingested at scale** | **Not yet run** — `data/` ships empty |
+| Vercel storage (Blob + Neon/pgvector) | **Provisioned and verified** — `python scripts/check_stores.py` |
+| **Real corpus in Neon** | **139 documents, 4,714 passages, 58 with verbatim full text** |
+| Vercel Blob (private store) | Working via `scripts/blob_bridge.mjs` — 58 articles uploaded |
 | Retrieval improvement loop | **Deliberately not run** — see *Why the loop hasn't run* below |
 
 `data/` is empty by design. It holds real ingested content, which is never committed.
@@ -98,6 +99,75 @@ git add public/eval_report.json && git commit -m "eval report" && git push
 
 The site reads this to populate the metrics panel. Without it, the panel states that the
 system is unmeasured rather than quietly showing nothing.
+
+
+---
+
+## Design decisions, and what each one measured
+
+Every choice below is recorded with the number that justified it. `CLAUDE.md` has the full
+working notes; `docs/STORAGE_DECISION.md` has the storage evaluation.
+
+### Reference stripping (`retrieval/references.py`)
+
+PMC plain text includes the bibliography, and citation strings retrieve well while
+containing no findings.
+
+| | Measured |
+|---|---|
+| Bibliography share of full-text characters | **18.4%** |
+| Passages reference-shaped, before | 9.1% (203/2233) |
+| Passages reference-shaped, after | **5.8%** |
+| Bibliographies detected | **5 of 6** articles |
+
+Three approaches were tried and two failed, which is why the final design is positional:
+
+- **Heading detection failed** — PMC emits only `JOURNAL INFORMATION` / `ARTICLE
+  INFORMATION` as capitalised headings; there is no `REFERENCES` heading in that form.
+- **Per-paragraph classification failed** — genuine prose citing `Chen et al. (2019)` plus
+  a DOI scores 0.500, above the 0.45 threshold. It deletes findings.
+- **Trailing-run detection fired zero times** — PMC emits the whole bibliography as *one*
+  paragraph (14,123 chars, 55 entries), so the run length was 1.
+
+**Not solved.** ~1 in 6 bibliographies is missed and a reference block still ranked first
+for the test query. Ingestion also upserts rather than replaces, so pre-stripping rows
+persist — clear `chunks` before re-measuring.
+
+### Chunk density — why real data was necessary
+
+| Corpus | Chunks/doc |
+|---|---|
+| Synthetic fixture | **5.0** |
+| Real PMC full text | **33–37** |
+
+At 5.0 every section collapsed to a single chunk, making section-aware chunking and the
+`max` vs `topn_decay` aggregation knobs **inert**. Tuning them on synthetic data would have
+measured nothing.
+
+### Storage: Neon + pgvector
+
+Chosen because **this corpus is relational** — grants ↔ publications ↔ PIs ↔ institutions,
+and those joins are half the product. Measured: 4,714 passages = 25 MB including 192-dim
+vectors, extrapolating to ~1.8 GB at 10k papers. Correct to ~10k papers; the decision rule
+and the alternatives (Upstash, Pinecone, Qdrant, Turbopuffer, bundled artifact) are weighed
+in `docs/STORAGE_DECISION.md`.
+
+⚠️ Its real cost: **`ts_rank_cd` is not BM25**, so the harness and production currently
+score differently. Three fixes are ranked in that document.
+
+### Private Blob store
+
+Vercel Blob private stores live on a different host and reject **every** REST upload. No
+`x-access` / `x-blob-access` / api-version combination works. Uploads route through
+`scripts/blob_bridge.mjs`, a persistent Node process using the official SDK — reused across
+calls because spawning Node per article would dominate a multi-thousand-document ingest.
+
+### Retrieval quality, stated plainly
+
+`ndcg@10 = 0.5507` against a **raw term-frequency floor of 0.4669** — a scorer with no IDF,
+no length normalisation, no chunking, no dense arm. That is **+0.08**, and the site says so
+rather than hiding it. Random scores 0.071 and popularity 0.115; those are flattering
+floors, and quoting them instead would be misleading.
 
 ---
 

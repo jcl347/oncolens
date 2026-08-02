@@ -205,18 +205,45 @@ class OpenAIBackend:
         # The API does not guarantee ordering; ``index`` does.
         return [d.embedding for d in sorted(resp.data, key=lambda d: d.index)]
 
-    #: ``text-embedding-3-*`` reject inputs over 8192 tokens. Measured on this corpus,
-    #: 1 token ~ 3.7 characters, so 24000 characters is a safe ceiling with headroom for
-    #: token-dense text (identifiers, tables). Truncation here is a **safety net, not the
-    #: fix**: an oversized passage is a chunking defect, and chunking.py enforces the cap.
-    #: Silently failing the whole batch because one passage is long would be worse.
-    MAX_INPUT_CHARS = 24000
+    #: ``text-embedding-3-*`` reject inputs over 8192 tokens. Leave headroom for the
+    #: model's own special tokens.
+    MAX_INPUT_TOKENS = 8000
+    #: Character fallback used only when tiktoken is unavailable. Deliberately pessimistic:
+    #: it assumes ~1 token per character, which no real prose reaches but dense tables
+    #: approach.
+    MAX_INPUT_CHARS_FALLBACK = 7800
+
+    _encoder = None
+
+    @classmethod
+    def _truncate(cls, text: str) -> str:
+        """Cut to the model's token limit, counting tokens rather than estimating them.
+
+        **A corpus average is the wrong tool here.** The first version truncated at 24,000
+        characters, justified by a measured corpus mean of 0.272 tokens/character. That
+        holds for prose and fails badly on the tab-separated tables lifted out of JATS,
+        where identifiers and numerals tokenize several times denser — those inputs still
+        exceeded 8192 tokens and failed the whole batch. Same mistake as trusting a mean
+        instead of a distribution; here it is cheap to just count.
+        """
+        if cls._encoder is None:
+            try:
+                import tiktoken
+                cls._encoder = tiktoken.get_encoding("cl100k_base")
+            except Exception:  # noqa: BLE001
+                cls._encoder = False
+        if cls._encoder is False:
+            return text[: cls.MAX_INPUT_CHARS_FALLBACK]
+        toks = cls._encoder.encode(text, disallowed_special=())
+        if len(toks) <= cls.MAX_INPUT_TOKENS:
+            return text
+        return cls._encoder.decode(toks[: cls.MAX_INPUT_TOKENS])
 
     def _encode(self, texts: Sequence[str]) -> np.ndarray:
         client = self._client_or_raise()
         out: list[list[float]] = []
         for i in range(0, len(texts), self.batch):
-            batch = [(t[: self.MAX_INPUT_CHARS] if t.strip() else " ")
+            batch = [(self._truncate(t) if t.strip() else " ")
                      for t in texts[i : i + self.batch]]
             out.extend(self._embed_batch(client, batch))
         return _l2(np.asarray(out, dtype=np.float64))

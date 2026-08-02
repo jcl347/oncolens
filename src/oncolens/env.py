@@ -17,6 +17,12 @@ from pathlib import Path
 #: Searched in order; the first file found wins.
 CANDIDATES = (".env.local", ".env")
 
+#: Vercel writes these placeholders for variables marked "Sensitive" — integration-created
+#: secrets (Neon, some Blob setups) cannot be read back by the CLI in ANY environment.
+#: Treating them as real values produces a baffling driver error ('missing "=" after
+#: "[SENSITIVE]"') far from the actual cause, so they are treated as absent.
+REDACTED_MARKERS = frozenset({"[SENSITIVE]", "[REDACTED]", "***", "<redacted>"})
+
 
 def load_env(root: Path | None = None, *, override: bool = False) -> dict[str, str]:
     """Read `.env.local` (or `.env`) into ``os.environ``. Returns what was loaded.
@@ -37,7 +43,7 @@ def load_env(root: Path | None = None, *, override: bool = False) -> dict[str, s
             key, _, value = line.partition("=")
             key = key.strip()
             value = value.strip().strip('"').strip("'")
-            if not key:
+            if not key or value in REDACTED_MARKERS:
                 continue
             if override or key not in os.environ:
                 os.environ[key] = value
@@ -55,6 +61,9 @@ def describe_credentials() -> list[str]:
     ]
     out = []
     for name, val in checks:
+        if val in REDACTED_MARKERS:
+            out.append(f"  {name:<24} REDACTED by Vercel (marked Sensitive - cannot be pulled)")
+            continue
         if val:
             out.append(f"  {name:<24} set ({len(val)} chars)")
         else:

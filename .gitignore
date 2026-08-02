@@ -6,3 +6,9 @@ venv/
 *.egg-info/
 .pytest_cache/
 artifact/
+
+# Ingested data never lives in the repo (or in OneDrive) - it goes to Vercel Blob + Postgres
+data/*
+!data/.gitkeep
+.env*.local
+.vercel/

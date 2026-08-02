@@ -253,6 +253,55 @@ adds papers whose citations point back out of the corpus. Sampling by topic give
 sampling by citation gives a corpus **with a measurable structure**.
 `scripts/build_citation_labels.py --snowball-out` → `ingest_real.py --pmids-file`.
 
+### 4.5 The retrieval result: a component had to be deleted
+
+Measured on 2,225 citation-context queries, paired permutation test, Bonferroni threshold
+0.0125 within the iteration (`scripts/bench_retrieval.py`):
+
+| system | nDCG@10 | Δ vs shipped | 95% CI | W/L |
+|---|---|---|---|---|
+| **lexical + OpenAI** | **0.4526** | **+0.0878** | [+0.0762, +0.0995] | 705/286 |
+| OpenAI alone | 0.4116 | +0.0469 | [+0.0331, +0.0609] | 630/456 |
+| **BM25 alone** | 0.3888 | **+0.0241** | [+0.0133, +0.0349] | 466/432 |
+| lexical + LSA (**what shipped**) | 0.3647 | — | — | — |
+| LSA alone | 0.3088 | −0.0560 | [−0.0643, −0.0478] | 220/599 |
+
+**The shipping configuration was worse than deleting half of it.** BM25 alone beat the
+lexical+LSA hybrid, p < 0.0001. `LsaBackend` is TF-IDF + SVD — a *lexical* model wearing a
+dense coat — so it contributed little BM25 did not already have, while RRF gave it an equal
+vote and it dragged the fusion down. This went unnoticed for the whole project because
+there was no real query set until citation mining produced one.
+
+⚠️ `unjudged@10 ≈ 0.94` at **1.10 judged documents per query**. These are lower bounds.
+The gate in `docs/MEASUREMENT.md` blocks promotion above 0.35 unjudged and it is right to;
+the *comparison* holds only because the unjudged rate is near-identical across systems.
+Never quote an absolute number from this benchmark as "the" retrieval quality.
+
+### 4.6 Embedding-space mismatch — a failure with no error
+
+A query vector from one model compared against document vectors from another **does not
+raise**. Cosine distance compares two unrelated 192-dim spaces happily and returns a
+confident, meaningless ranking. This corpus was embedded with LSA, then re-embedded with
+`text-embedding-3-small` at the *same* dimensionality — the column shape reveals nothing.
+
+`index_config` records the backend; `assert_embedding_matches` runs before every query.
+**Absent config is not permission**: an index with no record predates the table and holds
+LSA vectors, so serving it with a newer encoder is precisely the dangerous case, and the
+likely one. On mismatch: `503`, and **no fallback to the artifact** — answering from a
+different index would hide the misconfiguration.
+
+### 4.7 Serving must query the store, not a snapshot
+
+`api/search.py` loaded a bundled artifact and never touched Neon, so the site served a
+snapshot of a corpus it no longer had. At 59,306 passages the vectors alone are 45 MB
+before any text, well past what belongs in a function bundle. `serve/live_query.py` is the
+live path; the artifact is now the preview/offline fallback only.
+
+Bulk writes need `COPY`, not `executemany`: 59,306 individual UPDATEs died mid-run with
+*"SSL connection has been closed unexpectedly"*. `reembed_store.py` stages a batch via COPY
+and joins it with one set-based UPDATE — two statements per batch instead of four thousand
+— committing per batch and reconnecting on failure.
+
 ## 5. Evaluation — the part that is easy to fake
 
 Read `docs/MEASUREMENT.md`. The short version of what protects this:

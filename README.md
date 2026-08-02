@@ -211,10 +211,52 @@ calls because spawning Node per article would dominate a multi-thousand-document
 
 ### Retrieval quality, stated plainly
 
-`ndcg@10 = 0.5507` against a **raw term-frequency floor of 0.4669** — a scorer with no IDF,
-no length normalisation, no chunking, no dense arm. That is **+0.08**, and the site says so
-rather than hiding it. Random scores 0.071 and popularity 0.115; those are flattering
-floors, and quoting them instead would be misleading.
+Measured on **2,225 citation-context queries** over the 1,739-document corpus. Paired
+permutation test against the previously-shipping configuration, Bonferroni threshold
+0.0125 within the iteration:
+
+| system | nDCG@10 | recall@10 | MRR | Δ vs shipped | 95% CI | W/L |
+|---|---|---|---|---|---|---|
+| **lexical + OpenAI** | **0.4526** | **0.6082** | **0.4096** | **+0.0878** | [+0.0762, +0.0995] | 705/286 |
+| OpenAI alone | 0.4116 | 0.5678 | 0.3681 | +0.0469 | [+0.0331, +0.0609] | 630/456 |
+| **BM25 alone** | 0.3888 | 0.5318 | 0.3496 | **+0.0241** | [+0.0133, +0.0349] | 466/432 |
+| lexical + LSA *(what shipped)* | 0.3647 | 0.5206 | 0.3218 | — | — | — |
+| LSA alone | 0.3088 | 0.4646 | 0.2649 | −0.0560 | [−0.0643, −0.0478] | 220/599 |
+
+**The most useful result was that a component had to be deleted.** BM25 *on its own* beat
+the lexical+LSA hybrid that shipped (p < 0.0001). TF-IDF + SVD is a lexical model wearing a
+dense coat: it added little BM25 did not already have, while RRF gave it an equal vote. The
+second-largest measured win available was removing it.
+
+⚠️ **These are lower bounds, not quality estimates.** `unjudged@10 ≈ 0.94` — about 94% of
+returned documents were never judged, at **1.10 judged documents per query**. The promotion
+gate in `docs/MEASUREMENT.md` blocks anything above 0.35 unjudged, and that gate is right.
+The *comparison* between systems survives because the unjudged rate is near-identical across
+them (0.9348–0.9495); no absolute number here should be quoted as "the" retrieval quality.
+`bpref` is absent by design — it returns `None` below 10 judged negatives rather than
+averaging noise into a consensus vote.
+
+Reproduce:
+
+```bash
+python scripts/build_citation_labels.py --email you@org.edu
+python scripts/bench_retrieval.py --systems bm25 lsa openai hybrid-lsa hybrid-openai
+```
+
+### Embedding-space mismatch — the silent failure this design guards
+
+A query vector from one model compared against document vectors from another **does not
+raise**. Cosine distance compares two unrelated 192-dimension spaces perfectly happily and
+returns a confident, meaningless ranking. This corpus was embedded with LSA first and
+`text-embedding-3-small` later at the *same* dimensionality, so nothing about the column's
+shape reveals a mismatch.
+
+`scripts/reembed_store.py` records the backend in an `index_config` table and every query
+checks it before running. **An absent record is not treated as permission**: an index with
+no recorded backend predates the table and therefore holds LSA vectors, so serving it with a
+newer encoder is exactly the silent-nonsense case. On mismatch the API returns `503` and
+deliberately does *not* fall back to the bundled artifact, because answering from a
+different index would conceal the misconfiguration the check exists to surface.
 
 ---
 

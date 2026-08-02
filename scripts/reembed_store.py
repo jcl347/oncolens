@@ -32,7 +32,65 @@ from oncolens.env import load_env, local_data_dir  # noqa: E402
 from oncolens.retrieval.dense import make_backend  # noqa: E402
 from oncolens.serve import neon_store  # noqa: E402
 
-BATCH = 1000
+#: Rows per COPY+UPDATE round. Small enough that a dropped connection loses little work,
+#: large enough that the round-trip count stays low.
+BATCH = 4000
+
+
+def _write_vectors(dsn: str, conn, ids: list[str], vecs, dim: int) -> int:
+    """Bulk-update ``chunks.embedding`` via COPY into a staging table.
+
+    **Why not executemany.** 59,306 individual UPDATE statements over a serverless
+    Postgres died with "SSL connection has been closed unexpectedly" partway through:
+    that many round trips on one long-lived connection is simply the wrong shape for the
+    transport. COPY moves a whole batch in one stream, then a single set-based UPDATE
+    joins it — two statements per batch rather than four thousand.
+
+    Each batch commits on its own and is retried on a fresh connection if the link drops,
+    so a network blip costs one batch rather than the whole run.
+    """
+    import psycopg
+
+    written = 0
+    for i in range(0, len(ids), BATCH):
+        batch_ids = ids[i : i + BATCH]
+        rows = [
+            (cid, "[" + ",".join(f"{float(x):.6f}" for x in vecs[i + j]) + "]")
+            for j, cid in enumerate(batch_ids)
+        ]
+        for attempt in range(4):
+            try:
+                if conn.closed:
+                    conn = psycopg.connect(dsn, connect_timeout=20)
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "CREATE TEMP TABLE IF NOT EXISTS emb_stage "
+                        f"(chunk_id TEXT PRIMARY KEY, embedding vector({dim})) "
+                        "ON COMMIT DELETE ROWS"
+                    )
+                    with cur.copy(
+                        "COPY emb_stage (chunk_id, embedding) FROM STDIN"
+                    ) as cp:
+                        for cid, vec in rows:
+                            cp.write_row((cid, vec))
+                    cur.execute(
+                        "UPDATE chunks c SET embedding = s.embedding "
+                        "FROM emb_stage s WHERE c.chunk_id = s.chunk_id"
+                    )
+                conn.commit()
+                break
+            except Exception as exc:  # noqa: BLE001
+                if attempt == 3:
+                    raise
+                print(f"\n  batch at {i} failed ({type(exc).__name__}); reconnecting")
+                try:
+                    conn.close()
+                except Exception:  # noqa: BLE001
+                    pass
+                conn = psycopg.connect(dsn, connect_timeout=20)
+        written += len(batch_ids)
+        print(f"  {written:,}/{len(ids):,}", end="\r")
+    return written
 
 
 def main() -> int:
@@ -93,23 +151,7 @@ def main() -> int:
             raise SystemExit(f"encoder returned {vecs.shape}, expected {(len(ids), args.dim)}")
         print(f"  {vecs.shape[0]:,} vectors, dim {vecs.shape[1]}")
 
-        # Write in batches: a single 59k-row UPDATE builds one enormous transaction and
-        # can exceed a serverless Postgres statement timeout.
-        written = 0
-        for i in range(0, len(ids), BATCH):
-            chunk_ids = ids[i : i + BATCH]
-            payload = [
-                (cid, "[" + ",".join(f"{float(x):.6f}" for x in vecs[i + j]) + "]")
-                for j, cid in enumerate(chunk_ids)
-            ]
-            with conn.cursor() as cur:
-                cur.executemany(
-                    "UPDATE chunks SET embedding = %s::vector WHERE chunk_id = %s",
-                    [(v, cid) for cid, v in payload],
-                )
-            conn.commit()
-            written += len(chunk_ids)
-            print(f"  {written:,}/{len(ids):,}", end="\r")
+        written = _write_vectors(dsn, conn, ids, vecs, args.dim)
         print(f"  {written:,}/{len(ids):,} written")
 
         neon_store.set_index_config(

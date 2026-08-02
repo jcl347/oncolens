@@ -28,6 +28,7 @@ Add --dry-run to fetch and report without writing to any store.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
@@ -281,10 +282,29 @@ def main() -> int:
     print(f"  {n_docs} documents, {n_chunks} passages in Postgres")
 
     # ---- 6. real qrels from NLM human indexing ------------------------------
+    #
+    # Everything essential is already committed to Postgres by this point. This step
+    # publishes a convenience copy of the qrels, and it MUST NOT be able to fail the run:
+    # a suspended Blob store once raised here and returned a non-zero exit after a
+    # 40-minute ingest had fully succeeded, which reads as "the ingest failed" when the
+    # corpus was in fact complete and correct.
     qrels = pubmed.mesh_qrels(records)
+    local_qrels = local_data_dir() / "qrels_mesh.json"
+    try:
+        local_qrels.parent.mkdir(parents=True, exist_ok=True)
+        local_qrels.write_text(json.dumps({"queries": qrels}, ensure_ascii=False),
+                               encoding="utf-8")
+        print(f"  {len(qrels)} MeSH concept queries -> {local_qrels}")
+    except Exception as e:  # noqa: BLE001
+        print(f"  ! could not write local qrels ({str(e)[:70]})")
     if use_blob:
         from oncolens.serve import vercel_blob as vb
-        vb.put_json("qrels/mesh.json", {"queries": qrels})
+        try:
+            vb.put_json("qrels/mesh.json", {"queries": qrels})
+            print("  qrels also published to Blob")
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! Blob publish skipped: {str(e)[:90]}")
+            print("    (the corpus in Postgres is complete; this copy is a convenience)")
         print(f"  {len(qrels)} MeSH concept queries -> Blob (qrels/mesh.json)")
     else:
         import json as _json

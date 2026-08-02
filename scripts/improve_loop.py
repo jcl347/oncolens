@@ -125,6 +125,16 @@ CANDIDATES: list[Candidate] = [
         {"candidates": 400},
     ),
     Candidate(
+        "medcpt", "swap the dense arm for NCBI MedCPT",
+        "text-embedding-3-small is a general model that has read some biomedical text. "
+        "MedCPT was trained contrastively on 255M (query, clicked article) pairs from "
+        "PubMed itself, and those logs are SHORT queries — the exact shape of the concept "
+        "and identifier strata, and where a general embedder has least advantage.",
+        {"dense_backend": "medcpt"},
+        cost_note="768-dim, needs torch (~2GB): measurable offline, not servable on Vercel "
+                  "without a hosted endpoint and a schema change",
+    ),
+    Candidate(
         "rerank_llm", "LLM cross-encoder rerank of the top 24 passages",
         "A bi-encoder cannot judge whether a passage *reports* the queried finding or "
         "merely mentions it. That distinction is the whole difference between useful "
@@ -202,6 +212,7 @@ class Harness:
         self.dvecs = be.encode_documents_cached(self.texts, local_data_dir() / "emb_cache")
         self.qvecs = be.encode_queries([queries[q] for q in self.qids])
         self._expanded: dict[str, str] | None = None
+        self._dense_cache: dict[str, tuple] = {}
 
     def expanded_queries(self) -> dict[str, str]:
         if self._expanded is None:
@@ -215,6 +226,20 @@ class Harness:
                     print(f"  expanded {i+1}/{len(self.qids)}")
         return self._expanded
 
+    def dense_vectors(self, backend_name: str):
+        """Document and query matrices for a named backend, encoded once and reused."""
+        if backend_name in self._dense_cache:
+            return self._dense_cache[backend_name]
+        be = make_backend(backend_name, dim=192)
+        be.fit(self.texts)
+        if hasattr(be, "encode_documents_cached"):
+            dv = be.encode_documents_cached(self.texts, local_data_dir() / "emb_cache")
+        else:
+            dv = be.encode_documents(self.texts)
+        qv = be.encode_queries([self.queries[q] for q in self.qids])
+        self._dense_cache[backend_name] = (qv, dv)
+        return qv, dv
+
     def run(self, cfg: dict, qrels: dict, exclude: dict) -> dict[str, dict[str, float]]:
         bm25_w = cfg.get("bm25_weight", 1.0)
         dense_w = cfg.get("dense_weight", 1.0)
@@ -223,6 +248,8 @@ class Harness:
         use_expand = cfg.get("expand", False)
         use_rerank = cfg.get("rerank", False)
         exp = self.expanded_queries() if use_expand else None
+        qvecs, dvecs = (self.dense_vectors(cfg["dense_backend"])
+                        if cfg.get("dense_backend") else (self.qvecs, self.dvecs))
 
         per_query: dict[str, dict[str, float]] = {}
         for qi, qid in enumerate(self.qids):
@@ -232,7 +259,7 @@ class Harness:
                 runs.append(self.bm25.search(lex_q, k=cand))
                 weights.append(bm25_w)
             if dense_w > 0:
-                sims = self.dvecs @ self.qvecs[qi]
+                sims = dvecs @ qvecs[qi]
                 top = np.argpartition(-sims, min(cand, len(sims) - 1))[:cand]
                 top = top[np.argsort(-sims[top])]
                 runs.append([(self.chunk_ids[i], float(sims[i])) for i in top])

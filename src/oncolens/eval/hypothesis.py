@@ -162,6 +162,15 @@ HYPOTHESES: dict[str, Hypothesis] = {
                   "single-target lookup does; 200 may truncate the tail of the set.",
         null_strata=("identifier",),
     ),
+    "medcpt": Hypothesis(
+        candidate="medcpt", stratum="concept", metric="success@5",
+        direction="up", min_effect=0.02,
+        mechanism="MedCPT is trained on 255M PubMed click logs, which are SHORT queries "
+                  "against biomedical articles. The concept stratum is 2-word MeSH terms - "
+                  "the same distribution. A general embedder trained mostly on long web "
+                  "text has least advantage exactly there.",
+        null_strata=("claim",),
+    ),
     "rerank_llm": Hypothesis(
         candidate="rerank_llm", stratum="concept", metric="success@5",
         direction="up", min_effect=0.02,

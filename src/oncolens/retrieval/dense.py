@@ -287,6 +287,113 @@ class OpenAIBackend:
         return self._encode(texts)
 
 
+class MedCPTBackend:
+    """NCBI's MedCPT — a retriever trained on **255 million real PubMed click logs**.
+
+    **Why this is the strongest baseline available for this corpus.** ``text-embedding-3-
+    small`` is a general model that has read some biomedical text. MedCPT was trained
+    contrastively on *(query, clicked article)* pairs harvested from PubMed itself, which
+    makes it a model of what biomedical researchers actually search for and which article
+    they then opened. It reports state-of-the-art on six biomedical IR tasks in BEIR,
+    beating models far larger than itself.
+
+    The reason to expect it to matter *here specifically*: those click logs are **short
+    queries**. Our concept stratum is 2-word MeSH terms and our identifier stratum is bare
+    gene symbols — precisely the distribution MedCPT was fitted to, and precisely where a
+    long-document-trained general embedder has least advantage.
+
+    **Asymmetric by construction.** Query and article get different encoders, because a
+    2-word query and a 900-character passage are not the same kind of object. Using the
+    article encoder for queries would silently degrade retrieval, which is why the two are
+    kept distinct here rather than sharing one model as the OpenAI backend does.
+
+    ⚠️ **Deployment consequence, stated up front.** MedCPT is 768-dimensional and needs
+    torch + transformers (~2 GB). It does not fit a Vercel function bundle, and the
+    ``chunks.embedding`` column is ``vector(192)``. So this is measurable offline today and
+    servable only via a hosted inference endpoint plus a schema change. That cost is worth
+    paying only if it wins by a margin that justifies it — which is the question, not the
+    assumption.
+    """
+
+    name = "medcpt"
+    QUERY_MODEL = "ncbi/MedCPT-Query-Encoder"
+    ARTICLE_MODEL = "ncbi/MedCPT-Article-Encoder"
+
+    def __init__(self, batch: int = 32, max_length: int = 256,
+                 dimensions: int | None = None) -> None:
+        self.batch = batch
+        self.max_length = max_length
+        #: Truncation to a shorter width, for a like-for-like comparison against a
+        #: 192-dim index. MedCPT is not Matryoshka-trained, so truncating it is NOT
+        #: expected to be free — measuring that cost is the point of exposing it.
+        self.dimensions = dimensions
+        self._q = self._a = None
+
+    def _load(self, which: str):
+        import torch
+        from transformers import AutoModel, AutoTokenizer
+
+        name = self.QUERY_MODEL if which == "q" else self.ARTICLE_MODEL
+        tok = AutoTokenizer.from_pretrained(name)
+        mod = AutoModel.from_pretrained(name)
+        mod.eval()
+        torch.set_num_threads(max(1, (os.cpu_count() or 4) - 1))
+        return tok, mod
+
+    def fit(self, texts: Sequence[str]) -> None:
+        return None
+
+    def _encode(self, texts: Sequence[str], which: str) -> np.ndarray:
+        import torch
+
+        if which == "q":
+            if self._q is None:
+                self._q = self._load("q")
+            tok, mod = self._q
+        else:
+            if self._a is None:
+                self._a = self._load("a")
+            tok, mod = self._a
+
+        out: list[np.ndarray] = []
+        with torch.no_grad():
+            for i in range(0, len(texts), self.batch):
+                batch = [t if t.strip() else " " for t in texts[i : i + self.batch]]
+                enc = tok(batch, truncation=True, padding=True,
+                          max_length=self.max_length, return_tensors="pt")
+                # MedCPT uses the [CLS] representation, not mean pooling. Substituting
+                # mean pooling would quietly change what the model was trained to produce.
+                vecs = mod(**enc).last_hidden_state[:, 0, :]
+                out.append(vecs.cpu().numpy())
+        m = np.vstack(out).astype(np.float64)
+        if self.dimensions:
+            m = m[:, : self.dimensions]
+        return _l2(m)
+
+    def encode_documents(self, texts: Sequence[str]) -> np.ndarray:
+        return self._encode(texts, "a")
+
+    def encode_queries(self, texts: Sequence[str]) -> np.ndarray:
+        return self._encode(texts, "q")
+
+    def encode_documents_cached(self, texts: Sequence[str], cache_dir) -> np.ndarray:
+        """Same disk cache as the OpenAI backend — encoding 58k passages on CPU is slow."""
+        import hashlib
+        from pathlib import Path
+
+        h = hashlib.sha1()
+        h.update(f"{self.name}|{self.dimensions}|{len(texts)}".encode())
+        for t in texts:
+            h.update(t[:512].encode("utf-8", "ignore"))
+        path = Path(cache_dir) / f"emb_{self.name}_{h.hexdigest()[:16]}.npy"
+        if path.exists():
+            return np.load(path)
+        vecs = self.encode_documents(texts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(path, vecs)
+        return vecs
+
+
 def make_backend(name: str, *, dim: int = 192) -> EmbeddingBackend:
     """Resolve a backend by name so scripts can switch with a flag rather than an edit."""
     n = (name or "lsa").lower()
@@ -298,6 +405,12 @@ def make_backend(name: str, *, dim: int = 192) -> EmbeddingBackend:
         return OpenAIBackend("text-embedding-3-large", dimensions=dim)
     if n == "voyage":
         return VoyageBackend()
+    if n == "medcpt":
+        # Full 768 dims: MedCPT is not Matryoshka-trained, so truncating it is a real
+        # loss rather than a free saving.
+        return MedCPTBackend()
+    if n == "medcpt-192":
+        return MedCPTBackend(dimensions=192)
     raise ValueError(f"unknown embedding backend {name!r}")
 
 

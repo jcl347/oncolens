@@ -496,8 +496,30 @@ relevant document at rank *r*:
 | 25 | 0.040 | 0 | 0 | 0 | 0 | 0.000 |
 
 Every column is a deterministic function of the same number. They are not six votes; they
-are six thresholdings of one rank distribution. Correcting across them controls nothing
-real and inflates the minimum detectable effect:
+are six thresholdings of one rank distribution.
+
+⚠️ **How far this argument actually reaches — a correction.** "1.10 judgments per query" is
+the corpus-wide mean and it is dominated by `claim`, which is 87% of the queries and has
+exactly one relevant document each. Measured per stratum on the current label set:
+
+| stratum | queries (dev) | judgments | per query |
+|---|---|---|---|
+| claim | 3,998 total | 4,209 | **1.05** |
+| identifier | 223 total | ~223 | **1.0** |
+| **concept** | 252 dev | 3,364 | **13.3** |
+
+So the collapse is real and total for `claim` and `identifier`, and **only partial for
+`concept`**, where a query has a median of 9 relevant documents and `recall@k`, `success@k`
+and `mrr` genuinely can disagree. The first version of this note asserted the collapse
+across the whole panel; that was quoting a pooled mean at a stratum it does not describe —
+the same error §6.5 records in a different costume.
+
+The correction to the *correction* still stands on its own terms: one pre-registered
+endpoint with multiplicity controlled across candidates is the right design whether or not
+the secondaries are correlated, and Bonferroni across correlated tests is never the right
+one. But the power saving below is largest exactly where judgments are sparsest.
+
+Correcting across them controls nothing real and inflates the minimum detectable effect:
 
 | stratum | panel | MDE @ .05 | MDE @ the gate's own alpha | extra queries needed |
 |---|---|---|---|---|
@@ -578,6 +600,77 @@ shadow. That is the standing objection to t-SNE, which reshapes neighbourhoods u
 distance and cluster size mean nothing. The discriminant axes are chosen *after* seeing the
 labels, so they flatter the partition; that is a camera angle, not invented structure, and
 the UI names which view is on screen.
+
+### 4.13 Round 2 — the loop finally has power somewhere, and round 1's finding died
+
+**The snowball worked, and it is the only lever that has ever moved the bottleneck.**
+Expanding the corpus 1,003 → 1,754 documents did not just add papers; it converted
+citations *already mined* into labels, because the cited paper is now held:
+
+| | round 1 | round 2 | |
+|---|---|---|---|
+| citation contexts | 51,720 | 82,094 | |
+| labels kept | 2,225 | **3,998** | **+79.7%** |
+| judgments | 2,439 | 4,209 | +72.6% |
+| out-of-corpus rate | 85.2% | 80.5% | |
+| **claim** queries | 2,225 | **3,998** | MDE ≈ **0.0155** — *can see 0.02* |
+| **concept** queries | 426 | **373** | MDE **0.066** — still blind |
+| identifier queries | 113 | 223 | |
+
+⚠️ **Pruning shrank the stratum the MedCPT hypothesis is registered on.** Concept queries
+are derived from *document-level* MeSH, so deleting 736 abstract-only records deleted
+descriptors with them: 426 → 373. Removing abstracts was right for passage retrieval and
+wrong for this stratum's sample size, and nobody would have predicted that from either
+change in isolation. **Corpus edits move the evaluation, not just the index.**
+
+#### MedCPT: the point estimate landed on the pre-registered threshold and still cannot be claimed
+
+Concept, dev, n=252, baseline `success@5` = 0.7063:
+
+| metric | Δ MedCPT | p | Δ openai_768 (control) | p |
+|---|---|---|---|---|
+| **success@5** (gate) | **+0.0198** | 0.5644 | +0.0079 | 0.8428 |
+| success@1 | +0.0198 | 0.5779 | **−0.0278** | 0.2253 |
+| mrr | +0.0163 | 0.4155 | **−0.0108** | 0.4003 |
+| ndcg@10 | +0.0083 | 0.4275 | +0.0089 | 0.1369 |
+| success@10 | −0.0040 | 1.0000 | −0.0040 | 1.0000 |
+| unjudged@10 | **−0.0210** | — | −0.0095 | — |
+
+The registered prediction was `success@5` up by ≥0.02. It moved **+0.0198**. That is not a
+confirmation — p=0.5644, and the stratum's MDE is 0.066, so an effect of this size is
+**invisible by construction**. Five of six metrics moving the predicted way, and
+`unjudged@10` *falling* (MedCPT returns more judged documents, so the gain is not a pooling
+artifact), is the signature of a small real effect rather than noise — but signature is not
+evidence, and the honest verdict is REFUTED-for-lack-of-power.
+
+**The control is the informative part.** `openai_768` was added so a MedCPT win could not
+be confused with "four times the vector width". It does not behave like MedCPT: on the
+rank-sensitive metrics it moves the *opposite* way (`success@1` −0.0278 against +0.0198;
+`mrr` −0.0108 against +0.0163). Whatever MedCPT is doing, simply widening the same general
+embedder does not reproduce it. Capacity is not the explanation — which is the one thing
+this underpowered run *can* say, because it is a comparison of two candidates against the
+same baseline rather than a claim about either one's absolute effect.
+
+#### `adaptive_weights` is refuted, and this result IS powered
+
+Round 1's headline finding — set the BM25/dense ratio from query length — regresses:
+
+| metric | baseline | adaptive | Δ | p |
+|---|---|---|---|---|
+| mrr | 0.5396 | 0.5017 | −0.0379 | **0.0006** |
+| ndcg@10 | 0.2535 | 0.2378 | −0.0157 | **0.0073** |
+| success@10 | 0.8333 | 0.7857 | −0.0476 | **0.0103** |
+
+**The inference behind it was invalid.** Round 1 measured that *dropping* BM25 hurt 2-word
+concept queries and concluded that *doubling* BM25 would help them. On concept the adaptive
+rule is exactly `lexical_heavy` (≤3 words → bm25 2.0), and it hurts too. Both directions
+hurt because the baseline weight was already near optimal — a stationary point, not a slope.
+"Removing X hurts" says nothing about the sign of adding more X, and treating a one-sided
+perturbation as evidence of a gradient is how a loop invents a finding out of a null result.
+
+That §4.8 called this "THE FINDING FROM ROUND 1" and registered it as the round-2 candidate
+is the point: it was the most confidently-held conclusion in the ledger, it was formed on an
+underpowered eval, and the first properly-powered look reversed it.
 
 ### 4.9 Environment facts learned the expensive way
 

@@ -198,6 +198,40 @@ HYPOTHESES: dict[str, Hypothesis] = {
                   "does not, the domain-training claim survives a real test.",
         null_strata=(),
     ),
+    "tri_fusion": Hypothesis(
+        candidate="tri_fusion", stratum="synthesis", metric="recall@20",
+        direction="up", min_effect=0.02,
+        mechanism="Round 2 measured MedCPT and openai_768 failing in opposite directions "
+                  "on the same corpus: MedCPT +0.0261 recall@20 on synthesis and -0.0166 "
+                  "mrr on claim, openai_768 the reverse. RRF pays off exactly when arms "
+                  "are individually competent and wrong about different queries, so three "
+                  "arms should hold MedCPT's coverage gain WITHOUT its attribution cost. "
+                  "Predicted on synthesis because that is where the larger of the two "
+                  "measured effects lives.",
+        # The whole point is that fusion should not inherit MedCPT's regression. If claim
+        # drops anyway, the arms are not complementary in the way the deltas suggested.
+        null_strata=("claim",),
+    ),
+    "route_by_shape": Hypothesis(
+        candidate="route_by_shape", stratum="synthesis", metric="recall@20",
+        direction="up",
+        # DERIVED, not chosen. The routing bands were measured against the live query set
+        # first: 870 of 1,272 synthesis queries (68.4%) fall in the 4-15 word band and
+        # reach MedCPT, against only 317 of 3,998 claim queries (7.9%). If MedCPT's
+        # measured +0.0261 on synthesis is roughly uniform across its queries, routing
+        # 68.4% of them to it predicts 0.684 x 0.0261 = +0.0179. Registering 0.02 here
+        # would have been registering a number the mechanism cannot produce, and then
+        # explaining away the miss.
+        min_effect=0.015,
+        mechanism="Sends mid-length topical queries to MedCPT and everything else to "
+                  "openai_768, which is the per-stratum measurement applied per query. "
+                  "Query length separates the two shapes well enough to route on: 68% of "
+                  "synthesis lands in the MedCPT band against 8% of claim, so it should "
+                  "capture most of the coverage gain while exposing almost none of the "
+                  "attribution cost. What this really tests is whether the per-stratum "
+                  "effects are properties of the QUERIES or of the strata as pools.",
+        null_strata=("claim",),
+    ),
     "rerank_llm": Hypothesis(
         candidate="rerank_llm", stratum="concept", metric="success@5",
         direction="up", min_effect=0.02,

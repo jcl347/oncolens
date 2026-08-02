@@ -162,6 +162,30 @@ CANDIDATES: list[Candidate] = [
         cost_note="4x vector storage; still servable, unlike MedCPT",
     ),
     Candidate(
+        "tri_fusion", "fuse BM25 + openai_768 + MedCPT, three arms instead of two",
+        "ROUND 3, and it follows directly from round 2's measurement rather than from a "
+        "hunch. MedCPT and openai_768 fail in OPPOSITE directions: MedCPT +0.0261 on "
+        "synthesis set-coverage (p=0.0003) and -0.0166 on claim pinpointing (p=0.0034); "
+        "openai_768 the reverse (+0.0093 claim, +0.0016 synthesis). Complementary failure "
+        "modes on the same corpus are the precondition under which rank fusion beats "
+        "either arm, so give each a vote instead of choosing between them.",
+        {"dense_backend": "openai-768", "dense_backends": ["medcpt"]},
+        cost_note="needs BOTH a 768-dim OpenAI index and a hosted MedCPT endpoint: the "
+                  "most expensive candidate here, and only worth it if it beats both",
+    ),
+    Candidate(
+        "route_by_shape", "send each query to the arm measured best for its shape",
+        "Same round-2 measurement, different remedy. Rather than fusing, pick the arm "
+        "whose measured strength matches the query in front of us: MedCPT for the "
+        "mid-length topical questions where it wins coverage, openai_768 for the long "
+        "verbatim sentences where it wins attribution. Cheaper than tri_fusion at query "
+        "time (one dense arm, not two) and it is the hypothesis CLAUDE.md 4.13 registered "
+        "for round 3.",
+        {"dense_backend": "openai-768",
+         "route_by_shape": {"short": "openai-768", "mid": "medcpt", "long": "openai-768"}},
+        cost_note="still needs a hosted MedCPT endpoint, but only for mid-length queries",
+    ),
+    Candidate(
         "rerank_llm", "LLM cross-encoder rerank of the top 24 passages",
         "A bi-encoder cannot judge whether a passage *reports* the queried finding or "
         "merely mentions it. That distinction is the whole difference between useful "
@@ -369,6 +393,22 @@ class Harness:
         qvecs, dvecs = (self.dense_vectors(cfg["dense_backend"])
                         if cfg.get("dense_backend") else (self.qvecs, self.dvecs))
 
+        # MULTIPLE DENSE ARMS. Round 2 measured that MedCPT and openai_768 fail in
+        # OPPOSITE directions: MedCPT +0.0261 on synthesis set-coverage (p=0.0003) and
+        # -0.0166 on claim pinpointing (p=0.0034), openai_768 the reverse. Complementary
+        # failure modes are the textbook precondition for rank fusion being worth more
+        # than either arm, so this gives each its own vote instead of choosing one.
+        extra = [self.dense_vectors(n) for n in cfg.get("dense_backends", [])]
+
+        # ROUTE BY QUERY SHAPE. Same measurement, different remedy: pick the arm whose
+        # measured strength matches the query in front of us. Kept separate from the
+        # fusion candidate because they are different bets and the loop should not be
+        # asked which half of a bundle worked.
+        route = cfg.get("route_by_shape")
+        routed = None
+        if route:
+            routed = {name: self.dense_vectors(name) for name in set(route.values())}
+
         per_query: dict[str, dict[str, float]] = {}
         for qi, qid in enumerate(self.qids):
             # ADAPTIVE FUSION. Round 1 measured two failures pointing opposite ways:
@@ -391,12 +431,26 @@ class Harness:
                 lex_q = exp[qid] if exp else self.queries[qid]
                 runs.append(self.bm25.search(lex_q, k=cand))
                 weights.append(bm25_w)
-            if dense_w > 0:
-                sims = dvecs @ qvecs[qi]
+
+            def dense_run(qv, dv):
+                sims = dv @ qv[qi]
                 top = np.argpartition(-sims, min(cand, len(sims) - 1))[:cand]
                 top = top[np.argsort(-sims[top])]
-                runs.append([(self.chunk_ids[i], float(sims[i])) for i in top])
+                return [(self.chunk_ids[i], float(sims[i])) for i in top]
+
+            if dense_w > 0:
+                if routed:
+                    n_words = len(self.queries[qid].split())
+                    band = ("short" if n_words <= 3
+                            else "mid" if n_words <= 15 else "long")
+                    qv, dv = routed[route[band]]
+                else:
+                    qv, dv = qvecs, dvecs
+                runs.append(dense_run(qv, dv))
                 weights.append(dense_w)
+                for qv2, dv2 in extra:
+                    runs.append(dense_run(qv2, dv2))
+                    weights.append(dense_w)
             # The weights MUST reach RRF. Omitting them made bm25_weight control only
             # whether an arm was included, not how much it counted, so the
             # `lexical_heavy` candidate produced byte-identical rankings to the baseline

@@ -250,13 +250,30 @@ class OpenAIBackend:
         return cls._encoder.decode(toks[: cls.MAX_INPUT_TOKENS])
 
     def _encode(self, texts: Sequence[str]) -> np.ndarray:
+        """Encode in batches, converting each batch to numpy IMMEDIATELY.
+
+        **Why not accumulate the raw lists.** The obvious version keeps every embedding as
+        a ``list[list[float]]`` until the end. A Python float is a 24-byte boxed object and
+        each list slot is another 8-byte pointer, so a 768-dimensional vector costs roughly
+        32 bytes per component instead of 4: for a 180,850-passage corpus that is about
+        **4.4 GB of peak allocation to produce a 555 MB array**. Measured free memory on
+        this machine while the 192-dim pass was running was 1.5 GB, so the 768-dim control
+        would have hit the swap file or died outright.
+
+        Converting per batch keeps the peak at one batch of boxed floats plus the finished
+        array. float32 rather than float64 for the same reason: these are L2-normalised
+        vectors whose only use is a dot product, so the extra precision buys nothing and
+        costs another 2x in memory, on disk and in the cache file.
+        """
         client = self._client_or_raise()
-        out: list[list[float]] = []
+        parts: list[np.ndarray] = []
         for i in range(0, len(texts), self.batch):
             batch = [(self._truncate(t) if t.strip() else " ")
                      for t in texts[i : i + self.batch]]
-            out.extend(self._embed_batch(client, batch))
-        return _l2(np.asarray(out, dtype=np.float64))
+            parts.append(np.asarray(self._embed_batch(client, batch), dtype=np.float32))
+        if not parts:
+            return np.zeros((0, self.dimensions or 0), dtype=np.float32)
+        return _l2(np.vstack(parts))
 
     def encode_documents_cached(self, texts: Sequence[str], cache_dir) -> np.ndarray:
         """Encode with a disk cache keyed by (model, dimensions, corpus content).
@@ -418,7 +435,10 @@ class MedCPTBackend:
                     # frame. Without this the machine is unusable for the whole run.
                     torch.cuda.synchronize()
                     time.sleep(self.yield_ms / 1000.0)
-        m = np.vstack(out).astype(np.float64)
+        # Stay in float32. The batches were deliberately cast down on the GPU for exactly
+        # this reason and the old code cast straight back up, doubling a 555 MB array to
+        # 1.1 GB to store precision that a cosine similarity on unit vectors cannot use.
+        m = np.vstack(out)
         if self.dimensions:
             m = m[:, : self.dimensions]
         return _l2(m)

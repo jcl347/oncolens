@@ -212,6 +212,29 @@ HYPOTHESES: dict[str, Hypothesis] = {
         # drops anyway, the arms are not complementary in the way the deltas suggested.
         null_strata=("claim",),
     ),
+    "tri_fusion_balanced": Hypothesis(
+        candidate="tri_fusion_balanced", stratum="synthesis", metric="recall@20",
+        direction="up", min_effect=0.02,
+        mechanism="WEIGHT control for tri_fusion. tri_fusion runs three arms at equal "
+                  "weight, which silently moves lexical:dense from 1:1 to 1:2 as well as "
+                  "adding MedCPT. Restoring 1:1 by weighting BM25 2x isolates the two. If "
+                  "recall@20 still gains ~0.03 the effect is MedCPT's complementarity; if "
+                  "it collapses toward zero the effect was the rebalancing, and "
+                  "tri_fusion's headline is a weight change wearing a model's name.",
+        null_strata=(),
+    ),
+    "dual_dense": Hypothesis(
+        candidate="dual_dense", stratum="synthesis", metric="recall@20",
+        direction="up", min_effect=0.02,
+        mechanism="ARM-COUNT control for tri_fusion. Three RRF voters may beat two for "
+                  "reasons that have nothing to do with the third voter's content, so "
+                  "this adds a third arm carrying almost no new information: the same "
+                  "OpenAI model at 192 alongside itself at 768. A gain here would mean "
+                  "the fusion geometry is doing the work. PREDICTED TO FAIL, which is the "
+                  "point of a control: if it matches tri_fusion, the expensive candidate "
+                  "is buying nothing that a second copy of a cheap arm would not.",
+        null_strata=(),
+    ),
     "route_by_shape": Hypothesis(
         candidate="route_by_shape", stratum="synthesis", metric="recall@20",
         direction="up",

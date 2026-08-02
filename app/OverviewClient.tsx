@@ -15,7 +15,15 @@ type Stage = {
   metrics?: Metric[]; caveat?: string | null; headline?: string | null;
   systems?: Record<string, string | number>[];
 };
-type Journey = { generated_at: string; git_rev: string; live_store_reachable: boolean; stages: Stage[] };
+/** Emitted by build_journey_data.power_table: never typed into this component. */
+type Power = {
+  stratum: string; queries: number; judgments: number; weight: number | null;
+  gate_metric: string; mde: number; sees_002: boolean;
+};
+type Journey = {
+  generated_at: string; git_rev: string; live_store_reachable: boolean;
+  stages: Stage[]; power?: Power[];
+};
 
 const PROVENANCE: Record<string, { label: string; cls: string; title: string }> = {
   live: { label: "live", cls: "border-emerald-400/25 text-emerald-300/90",
@@ -169,6 +177,151 @@ const QUERY_TYPES = [
   },
 ];
 
+/**
+ * Every metric in the panel, and what it answers FOR A RAG SYSTEM specifically.
+ *
+ * Retrieval quality is the ceiling on generation quality: a model can only be as accurate
+ * as the passages handed to it, and it cannot know what it was not shown. So each metric
+ * here is described by the generation failure it predicts, not by its textbook definition.
+ */
+const METRICS = [
+  {
+    name: "recall@20",
+    role: "gate: synthesis",
+    asks: "Of the papers that belong in the answer, how many are in the top 20?",
+    rag: "A literature-review answer is bounded by the set the generator sees. A paper "
+       + "missing from the context is a claim the model cannot make and will not know it "
+       + "failed to make. This is the only metric here that measures an absence.",
+  },
+  {
+    name: "success@5",
+    role: "gate: concept",
+    asks: "Did at least one right paper reach the first screen?",
+    rag: "Short topical queries are typed dozens of times a day while scoping. If the "
+       + "right paper is at rank 12 it is not in the context window and, for the reader, "
+       + "does not exist.",
+  },
+  {
+    name: "success@1",
+    role: "gate: identifier",
+    asks: "Was the very first result the right one?",
+    rag: "For an exact lookup the top hit is often the only one read. Returning a paper "
+       + "about a DIFFERENT variant is worse than returning nothing, because the mistake "
+       + "is invisible in a fluent answer.",
+  },
+  {
+    name: "mrr",
+    role: "gate: claim",
+    asks: "How far down the list is the first correct answer?",
+    rag: "Proxy for how much irrelevant context the generator wades through before "
+       + "reaching signal. Rank 1 and rank 8 both count as a hit at k=10, and they are "
+       + "not the same prompt.",
+  },
+  {
+    name: "ndcg@10",
+    role: "secondary",
+    asks: "Graded, position-weighted quality of the whole top 10.",
+    rag: "The top-k IS the context window, so scoring it as a unit rather than as a hit "
+       + "or miss is the closest single number to what the generator receives.",
+  },
+  {
+    name: "success@10 / @20",
+    role: "secondary",
+    asks: "Does the answer survive at deeper cutoffs?",
+    rag: "Catches a change that sharpens the head while pushing answers out of the tail. "
+       + "A reranker can look excellent at k=1 and lose documents at k=20.",
+  },
+  {
+    name: "unjudged@10",
+    role: "diagnostic, never a target",
+    asks: "What fraction of returned documents has nobody judged?",
+    rag: "The honesty valve. If a change raises this, its apparent gain may only be that "
+       + "it returns documents the pool never assessed. Optimising it directly would mean "
+       + "preferring documents that happen to have been judged.",
+  },
+  {
+    name: "bpref",
+    role: "reported when defined",
+    asks: "Rank quality counting only JUDGED non-relevant documents.",
+    rag: "Robust to incomplete judgments, which is the normal condition here. It returns "
+       + "nothing below 10 judged negatives rather than averaging noise into a verdict.",
+  },
+];
+
+/**
+ * The guards. Each exists because the corresponding failure actually happened in this
+ * project, which is why they are stated as rules rather than as aspirations.
+ */
+const GUARDS = [
+  {
+    name: "Per-stratum gating",
+    what: "Four query types scored separately; no pooled mean.",
+    why: "An aggregate rises while exact-identifier lookup collapses. Round 1 found the "
+       + "optimal lexical weight points in OPPOSITE directions for short and long "
+       + "queries; a pooled mean would have averaged that into 'no change' and discarded it.",
+  },
+  {
+    name: "Pareto dominance, not a weighted score",
+    what: "Ships only if better on at least one stratum and worse on none.",
+    why: "Measured, not hypothetical: MedCPT wins the weighted composite by 3x and is "
+       + "refused, because its coverage gain is paid for with a significant regression on "
+       + "find-the-source. Those are different jobs for the same user, and the weights "
+       + "trading them off were chosen by us rather than measured.",
+  },
+  {
+    name: "Pre-registered predictions",
+    what: "Each candidate states its stratum, metric, direction and minimum effect before it runs.",
+    why: "Run enough candidates against enough metrics and something looks significant. "
+       + "Writing the prediction down first is what makes a result capable of being wrong, "
+       + "and an unpredicted win is recorded as a hypothesis for next round, not as success.",
+  },
+  {
+    name: "Holm across candidates",
+    what: "One gate metric per stratum, corrected over the candidates tried.",
+    why: "The earlier gate corrected across 5 to 8 metrics that are deterministic "
+       + "functions of a single rank. That controls nothing and inflated the detectable "
+       + "effect by about 25%, on a harness already short of power.",
+  },
+  {
+    name: "Regression veto, uncorrected",
+    what: "Any significant drop on any secondary metric refuses the change.",
+    why: "A false positive here means refusing a change, which is the safe direction. "
+       + "Making a safety check harder to trip is backwards.",
+  },
+  {
+    name: "NO_EFFECT detection",
+    what: "Byte-identical rankings are reported as a wiring bug, not a negative result.",
+    why: "Three candidates in this project were structurally incapable of moving the "
+       + "metric they were judged on. Each time the loop was one step from recording a "
+       + "confident negative about an idea that never ran.",
+  },
+  {
+    name: "Minimum detectable effect",
+    what: "Published per stratum, next to the result.",
+    why: "'No significant change' and 'this experiment cannot see a change that size' "
+       + "look identical in a table and mean opposite things. Blindness that reads as "
+       + "rigour is the most dangerous failure a harness has.",
+  },
+  {
+    name: "Locked test split",
+    what: "Candidates only ever touch dev; test is spent once.",
+    why: "The real defence against fitting the benchmark across many rounds. Nothing on "
+       + "this page has spent it.",
+  },
+  {
+    name: "The citing paper is excluded from its own results",
+    what: "assert_source_excluded() raises rather than warns.",
+    why: "The source contains the query verbatim, so leaving it in would measure string "
+       + "equality and score near-perfectly. A convention you can forget is not a guard.",
+  },
+  {
+    name: "A raw term-frequency floor",
+    what: "A ~20-line scorer with no IDF and no length normalisation.",
+    why: "Random and popularity baselines are flattering. The honest question is how much "
+       + "the system beats the simplest thing that could work.",
+  },
+];
+
 /** How the tool is used. Placed above the design narrative because a reader who cannot
  *  work the thing has no reason to care how it was built. */
 const HOW_TO_USE = [
@@ -206,6 +359,7 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
   const liveMetric = (label: string) =>
     corpus?.metrics?.find((m) => m.label === label)?.value;
   const passages = liveMetric("Retrievable passages");
+  const power = journey?.power ?? [];
 
   return (
     // NO opaque background on this wrapper: `html, body` in globals.css already paint
@@ -373,14 +527,117 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
               answer set; MeSH major topics are NLM&apos;s human indexing. Nothing was
               annotated for this project, and no model chose its own training signal.
             </p>
-            <p>
-              <span className="text-slate-200">A change ships only if it is a Pareto
-              improvement</span>: better on at least one query type and worse on none.
-              A weighted average would let a gain on common queries pay for a regression on
-              exact lookup, where returning the wrong variant is worse than returning
-              nothing because the error is invisible in the results.
-            </p>
           </div>
+
+          {/* ---------- every metric, and what it predicts about generation ---------- */}
+          <h3 className="mt-12 text-sm font-medium text-white">
+            What each number means for a RAG answer
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+            Retrieval quality is the ceiling on generation quality. A model can only be as
+            accurate as the passages handed to it, and it cannot know what it was never
+            shown, so a retrieval metric that flatters itself produces a system that is
+            confidently wrong. Each metric below is described by the failure it predicts.
+          </p>
+
+          <div className="mt-5 grid gap-px overflow-hidden rounded-lg bg-white/8 sm:grid-cols-2">
+            {METRICS.map((m) => (
+              <div key={m.name} className="bg-[#080d16] p-4">
+                <div className="flex items-baseline justify-between gap-3">
+                  <code className="font-mono text-[13px] text-cyan-300">{m.name}</code>
+                  <span className="shrink-0 text-[10px] uppercase tracking-wider text-slate-600">
+                    {m.role}
+                  </span>
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{m.asks}</p>
+                <p className="mt-1.5 text-xs leading-relaxed text-slate-500">{m.rag}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* ---------- what each stratum can actually resolve ---------- */}
+          {power.length > 0 && (
+            <>
+              <h3 className="mt-12 text-sm font-medium text-white">
+                What the benchmark can and cannot see
+              </h3>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+                The minimum detectable effect is the smallest change each stratum could
+                distinguish from noise, at 80% power. Anything below it is invisible by
+                construction, so a result there says nothing about the idea being tested.
+                Publishing it next to the sample size is what separates a negative result
+                from a blind one.
+              </p>
+              <div className="mt-5 overflow-x-auto">
+                <table className="w-full min-w-[560px] text-left text-xs">
+                  <thead className="text-[10px] uppercase tracking-wider text-slate-500">
+                    <tr className="border-b border-white/10">
+                      <th className="py-2 pr-4 font-normal">stratum</th>
+                      <th className="py-2 pr-4 text-right font-normal">queries</th>
+                      <th className="py-2 pr-4 text-right font-normal">judgments</th>
+                      <th className="py-2 pr-4 text-right font-normal">weight</th>
+                      <th className="py-2 pr-4 font-normal">gate metric</th>
+                      <th className="py-2 pr-4 text-right font-normal">smallest visible effect</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-slate-300">
+                    {power.map((r) => (
+                      <tr key={r.stratum} className="border-b border-white/5">
+                        <td className="py-2.5 pr-4 font-medium text-white">{r.stratum}</td>
+                        <td className="py-2.5 pr-4 text-right font-mono tabular-nums">
+                          {r.queries.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-slate-400">
+                          {r.judgments.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-slate-400">
+                          {r.weight != null ? r.weight.toFixed(2) : "n/a"}
+                        </td>
+                        <td className="py-2.5 pr-4 font-mono text-[11px] text-slate-400">
+                          {r.gate_metric}
+                        </td>
+                        <td className={`py-2.5 pr-4 text-right font-mono tabular-nums ${
+                          r.sees_002 ? "text-emerald-300/90" : "text-amber-300/80"}`}>
+                          {r.mde.toFixed(3)}
+                          <span className="ml-1.5 text-[10px] uppercase tracking-wider">
+                            {r.sees_002 ? "sees 0.02" : "blind below"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {/* ---------- the guards ---------- */}
+          <h3 className="mt-12 text-sm font-medium text-white">
+            What stops these numbers from flattering themselves
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+            Each of these exists because the corresponding failure actually happened here,
+            which is why they are rules rather than intentions.
+          </p>
+          <div className="mt-5 space-y-px overflow-hidden rounded-lg bg-white/8">
+            {GUARDS.map((g) => (
+              <div key={g.name} className="bg-[#080d16] p-4 sm:grid sm:grid-cols-[15rem_1fr] sm:gap-5">
+                <div>
+                  <h4 className="text-xs font-medium text-white">{g.name}</h4>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{g.what}</p>
+                </div>
+                <p className="mt-2 text-xs leading-relaxed text-slate-400 sm:mt-0">{g.why}</p>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-6 max-w-2xl border-l-2 border-white/15 pl-4 text-sm leading-relaxed text-slate-400">
+            <span className="text-slate-200">A change ships only if it is a Pareto
+            improvement</span>: better on at least one query type and worse on none.
+            A weighted average would let a gain on common queries pay for a regression on
+            exact lookup, where returning the wrong variant is worse than returning nothing
+            because the error is invisible in the results.
+          </p>
 
           {retrieval?.systems?.length ? (
             <div className="mt-7 overflow-x-auto">

@@ -174,6 +174,30 @@ CANDIDATES: list[Candidate] = [
                   "most expensive candidate here, and only worth it if it beats both",
     ),
     Candidate(
+        "tri_fusion_balanced", "tri_fusion with BM25 weighted 2x: the WEIGHT control",
+        "CONTROL for tri_fusion, not a proposal, and the same move openai_768 was for "
+        "MedCPT. Adding a third arm at equal weight does two things at once: it adds "
+        "MedCPT AND it shifts lexical:dense from 1:1 to 1:2, because the dense side now "
+        "has two votes. This project has already measured that the ratio matters "
+        "(dense_only regressed concept; adaptive_weights regressed both ways), so part of "
+        "tri_fusion's +0.0305 could be the rebalancing rather than complementarity. "
+        "Weighting BM25 2x restores 1:1. If the gain survives, it is MedCPT. If it "
+        "evaporates, tri_fusion measured a weight change and called it a model.",
+        {"dense_backend": "openai-768", "dense_backends": ["medcpt"], "bm25_weight": 2.0},
+        cost_note="same cost as tri_fusion; exists to attribute its gain, not to ship",
+    ),
+    Candidate(
+        "dual_dense", "BM25 + openai_768 + openai@192: the ARM-COUNT control",
+        "Second control for tri_fusion. Three arms at equal weight may beat two simply "
+        "because RRF with more voters is more robust, independent of WHICH third voter is "
+        "added. This adds a third arm that carries almost no new information (the same "
+        "OpenAI model at two widths), so any gain here is the arm count and the fusion "
+        "geometry rather than a genuinely different view of the corpus.",
+        {"dense_backend": "openai-768", "dense_backends": ["openai"]},
+        cost_note="cheap: no MedCPT, no hosted endpoint. If THIS matches tri_fusion, the "
+                  "expensive candidate is buying nothing",
+    ),
+    Candidate(
         "route_by_shape", "send each query to the arm measured best for its shape",
         "Same round-2 measurement, different remedy. Rather than fusing, pick the arm "
         "whose measured strength matches the query in front of us: MedCPT for the "

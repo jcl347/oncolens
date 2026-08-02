@@ -328,7 +328,56 @@ def build(now_iso: str) -> dict:
         "live_store_reachable": bool(live) and "error" not in live,
         "store_error": live.get("error"),
         "stages": stages,
+        "power": power_table(ddir),
     }
+
+
+def power_table(ddir: Path) -> list[dict]:
+    """Per-stratum sample size and the smallest effect that size can actually detect.
+
+    **Why this belongs on the page and not in a notebook.** "No significant change" and
+    "this experiment cannot see a change that size" render identically in a results table
+    and mean opposite things. Publishing the minimum detectable effect next to the stratum
+    is what lets a reader tell a negative result from a blind one, and it is the single
+    number this project has been most wrong about historically.
+
+    The metric per stratum is binary (``success@k``, ``recall@20`` on small answer sets),
+    so the standard deviation follows from the observed rate and no prior run is needed.
+    """
+    from oncolens.eval.stats import detectable_effect
+    from oncolens.eval.weighting import PRIMARY_METRIC, STRATUM_WEIGHTS
+
+    strata_path = ddir / "strata.json"
+    if not strata_path.exists():
+        return []
+    d = json.loads(strata_path.read_text(encoding="utf-8"))
+    sizes: dict[str, int] = {}
+    judged: dict[str, int] = {}
+    for qid in d.get("queries", {}):
+        s = d.get("strata", {}).get(qid, "?")
+        sizes[s] = sizes.get(s, 0) + 1
+        judged[s] = judged.get(s, 0) + len(d.get("qrels", {}).get(qid, {}))
+
+    # Baselines observed on the dev split; used only to derive the Bernoulli sd, so a
+    # rough value changes the MDE very little.
+    baseline = {"synthesis": 0.2812, "concept": 0.7063, "identifier": 0.1899, "claim": 0.4950}
+    out = []
+    for s in ("synthesis", "concept", "identifier", "claim"):
+        n = sizes.get(s, 0)
+        if not n:
+            continue
+        p = baseline.get(s, 0.5)
+        sd = (p * (1 - p)) ** 0.5
+        out.append({
+            "stratum": s,
+            "queries": n,
+            "judgments": judged.get(s, 0),
+            "weight": STRATUM_WEIGHTS.get(s),
+            "gate_metric": PRIMARY_METRIC.get(s),
+            "mde": round(detectable_effect(n, sd, alpha=0.05), 4),
+            "sees_002": bool(detectable_effect(n, sd, alpha=0.05) <= 0.02),
+        })
+    return out
 
 
 def main() -> int:

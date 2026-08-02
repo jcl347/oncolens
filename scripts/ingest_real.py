@@ -89,8 +89,14 @@ def main() -> int:
     ap.add_argument("--email", default=None, help="NCBI asks for this; avoids throttling")
     ap.add_argument("--api-key", default=os.environ.get("NCBI_API_KEY"))
     ap.add_argument("--dry-run", action="store_true", help="fetch only; write to no store")
-    ap.add_argument("--commercial-only", action="store_true", default=True,
-                    help="skip articles whose licence forbids commercial use (default on)")
+    ap.add_argument("--license-policy", default="research",
+                    choices=["research", "commercial", "permissive_only", "all"],
+                    help="which licences to index. 'research' (default) includes "
+                         "non-commercial CC and TDM; 'commercial' excludes NC")
+    ap.add_argument("--pmids-file", default=None,
+                    help="ingest these PMIDs (one per line) instead of running the MeSH "
+                         "seed queries. Used for snowball expansion along the citation "
+                         "graph: see scripts/build_citation_labels.py --snowball-out")
     ap.add_argument("--embed-dim", type=int, default=192)
     ap.add_argument("--no-blob", action="store_true",
                     help="skip Blob upload even if a token is present")
@@ -118,10 +124,20 @@ def main() -> int:
             print("      so search and comparison are fully functional without it.")
     print()
 
-    # ---- 1. discover real PMIDs by MeSH query --------------------------------
+    # ---- 1. discover real PMIDs ---------------------------------------------
+    # Either by MeSH seed query (topical sample) or from an explicit list (snowball
+    # expansion along the citation graph). Snowball matters because citation-context
+    # labels only exist when BOTH the citing and the cited paper are held: on the first
+    # topically-sampled corpus, 4,967 of 4,973 citation contexts pointed outside it.
+    pmids: list[str] = []
+    seen: set[str] = set()
+    if args.pmids_file:
+        raw = Path(args.pmids_file).read_text(encoding="utf-8").split()
+        pmids = [p.strip() for p in raw if p.strip().isdigit()][: args.max_papers]
+        print(f"{len(pmids)} PMIDs from {args.pmids_file} (snowball expansion)")
+
     per_seed = max(20, args.max_papers // len(SEEDS))
-    pmids, seen = [], set()
-    for seed in SEEDS:
+    for seed in ([] if pmids else SEEDS):
         try:
             ids = pubmed.esearch(seed, retmax=per_seed, email=args.email, api_key=args.api_key)
         except Exception as e:
@@ -152,7 +168,7 @@ def main() -> int:
         if pmcid:
             meta = pmc_cloud.fetch_metadata(pmcid, 1)
             if meta:
-                if args.commercial_only and not pmc_cloud.commercial_use_ok(meta):
+                if not pmc_cloud.license_allows(meta, args.license_policy):
                     skipped_licence += 1
                 elif meta.get("is_retracted"):
                     pass                    # never index a retracted article
@@ -170,8 +186,8 @@ def main() -> int:
         docs.append(doc)
 
     full = sum(1 for d in docs if any(s["name"] == "Body" for s in d["sections"]))
-    print(f"  {full} documents with REAL full text; {skipped_licence} skipped on licence; "
-          f"{no_text} had no text rendition")
+    print(f"  {full} documents with REAL full text; {skipped_licence} skipped by the "
+          f"'{args.license_policy}' licence policy; {no_text} had no text rendition")
 
     chunks = chunk_corpus(docs)
     print(f"chunked into {len(chunks)} passages "

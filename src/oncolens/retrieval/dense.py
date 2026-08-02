@@ -140,6 +140,80 @@ class VoyageBackend:
         return self._encode(texts, "query")
 
 
+class OpenAIBackend:
+    """OpenAI ``text-embedding-3-*``. Requires OPENAI_API_KEY.
+
+    **Why this exists.** The default :class:`LsaBackend` is TF-IDF + SVD, which is a purely
+    *lexical* model wearing a dense coat: it can only relate terms that co-occur in this
+    corpus. It cannot know that "EGFR TKI" and "erlotinib" are the same idea unless the
+    corpus happens to put them in the same documents. Since the product's whole premise is
+    searching by *concept*, that ceiling is the thing worth attacking.
+
+    ``dimensions`` is passed through because ``text-embedding-3-*`` supports Matryoshka
+    truncation: shorter vectors cost less to store and index in pgvector, and the models
+    are trained so the leading dimensions carry the most information. Whether the shorter
+    vector actually costs accuracy on *this* corpus is a measurable question, not an
+    assumption — ``scripts/bench_embeddings.py`` answers it.
+
+    Unlike Voyage, OpenAI's embedding models are **symmetric**: there is no separate query
+    instruction, so queries and documents are encoded identically. Inventing an asymmetric
+    prefix here would be cargo-culting from another provider's API.
+    """
+
+    name = "openai"
+
+    def __init__(self, model: str = "text-embedding-3-small", batch: int = 128,
+                 dimensions: int | None = None) -> None:
+        self.model = model
+        self.batch = batch
+        self.dimensions = dimensions
+        self._client = None
+
+    def _client_or_raise(self):
+        if self._client is None:
+            if not os.environ.get("OPENAI_API_KEY"):
+                raise RuntimeError("OPENAI_API_KEY not set — cannot use OpenAIBackend")
+            from openai import OpenAI  # lazy: absent unless the extra is installed
+            self._client = OpenAI()
+        return self._client
+
+    def fit(self, texts: Sequence[str]) -> None:
+        return None  # no corpus fitting required
+
+    def _encode(self, texts: Sequence[str]) -> np.ndarray:
+        client = self._client_or_raise()
+        out: list[list[float]] = []
+        for i in range(0, len(texts), self.batch):
+            batch = [t if t.strip() else " " for t in texts[i : i + self.batch]]
+            kw = {"model": self.model, "input": batch}
+            if self.dimensions:
+                kw["dimensions"] = self.dimensions
+            resp = client.embeddings.create(**kw)
+            # The API does not guarantee ordering; ``index`` does.
+            out.extend(d.embedding for d in sorted(resp.data, key=lambda d: d.index))
+        return _l2(np.asarray(out, dtype=np.float64))
+
+    def encode_documents(self, texts: Sequence[str]) -> np.ndarray:
+        return self._encode(texts)
+
+    def encode_queries(self, texts: Sequence[str]) -> np.ndarray:
+        return self._encode(texts)
+
+
+def make_backend(name: str, *, dim: int = 192) -> EmbeddingBackend:
+    """Resolve a backend by name so scripts can switch with a flag rather than an edit."""
+    n = (name or "lsa").lower()
+    if n == "lsa":
+        return LsaBackend(dim=dim)
+    if n in ("openai", "openai-small"):
+        return OpenAIBackend("text-embedding-3-small", dimensions=dim)
+    if n == "openai-large":
+        return OpenAIBackend("text-embedding-3-large", dimensions=dim)
+    if n == "voyage":
+        return VoyageBackend()
+    raise ValueError(f"unknown embedding backend {name!r}")
+
+
 class DenseIndex:
     def __init__(self, backend: EmbeddingBackend | None = None) -> None:
         self.backend = backend or LsaBackend()

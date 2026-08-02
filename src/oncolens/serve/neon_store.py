@@ -214,10 +214,39 @@ def upsert_documents(conn, docs: Iterable[dict]) -> int:
     return len(rows)
 
 
-def upsert_chunks(conn, chunks: Sequence[dict], embeddings: Sequence[Sequence[float]]) -> int:
-    """``chunks`` carries chunk_id/doc_id/section/ordinal/offsets/text/indexed_text."""
+def replace_document_chunks(conn, doc_ids: Iterable[str]) -> int:
+    """Delete every existing chunk for these documents.
+
+    **Why this exists.** ``upsert_chunks`` keys on ``chunk_id``, so re-ingesting a document
+    that now yields *fewer* chunks leaves the surplus rows behind. Reference stripping does
+    exactly that — it removes ~20% of each article — so after the stripper shipped, the
+    index still contained the bibliography passages from the previous run. The retrieval
+    numbers then described a corpus that no longer matched the code, which is the specific
+    failure this project is built to catch.
+
+    Callers must run this *inside the same transaction* as the insert, so a crash between
+    the two cannot leave a document with no passages at all.
+    """
+    ids = list(doc_ids)
+    if not ids:
+        return 0
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM chunks WHERE doc_id = ANY(%s)", (ids,))
+        return cur.rowcount or 0
+
+
+def upsert_chunks(conn, chunks: Sequence[dict], embeddings: Sequence[Sequence[float]],
+                  *, replace: bool = True) -> int:
+    """``chunks`` carries chunk_id/doc_id/section/ordinal/offsets/text/indexed_text.
+
+    ``replace=True`` (the default) first clears every existing chunk for the documents
+    being written, so the stored passages are exactly what the current chunker produces.
+    Pass ``replace=False`` only when appending to a document already written in this run.
+    """
     if len(chunks) != len(embeddings):
         raise ValueError(f"chunk/embedding count mismatch: {len(chunks)} vs {len(embeddings)}")
+    if replace and chunks:
+        replace_document_chunks(conn, {c["doc_id"] for c in chunks})
     rows = [
         (c["chunk_id"], c["doc_id"], c.get("section", ""), c.get("ordinal", 0),
          c["start_char"], c["end_char"], c["text"], c.get("indexed_text", c["text"]),

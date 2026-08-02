@@ -1,9 +1,25 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/search.py":   { "memory": 1024, "maxDuration": 30 },
-    "api/compare.py":  { "memory": 1024, "maxDuration": 60 },
-    "api/evaluate.py": { "memory": 512,  "maxDuration": 10 },
-    "api/setup.py":    { "memory": 1024, "maxDuration": 60 }
+    "api/search.py": {
+      "memory": 1024,
+      "maxDuration": 30,
+      "includeFiles": "src/**"
+    },
+    "api/compare.py": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "src/**"
+    },
+    "api/evaluate.py": {
+      "memory": 512,
+      "maxDuration": 10,
+      "includeFiles": "src/**"
+    },
+    "api/setup.py": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "src/**"
+    }
   }
 }

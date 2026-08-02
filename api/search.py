@@ -220,6 +220,49 @@ def get_index() -> Index:
     return _INDEX
 
 
+def _diagnose(exc: Exception | None) -> dict:
+    """Report exactly which precondition is unmet, and how to set it.
+
+    Names only presence and absence — never a secret's value. The failure modes this
+    distinguishes were all hit in practice on a real deployment, and a single generic
+    message made each of them look like the others.
+    """
+    have_pg = bool(os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL"))
+    have_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    backend = os.environ.get("ONCOLENS_EMBED_BACKEND", "openai")
+    artifact_present = (ARTIFACT_DIR / "index.json").exists()
+
+    missing = []
+    if not have_pg:
+        missing.append("POSTGRES_URL (or DATABASE_URL)")
+    if backend.startswith("openai") and not have_openai:
+        missing.append("OPENAI_API_KEY")
+
+    out: dict = {
+        "error": "search unavailable",
+        "config": {
+            "postgres_url_set": have_pg,
+            "openai_api_key_set": have_openai,
+            "embed_backend": backend or "(dense arm disabled)",
+            "bundled_artifact_present": artifact_present,
+        },
+        "missing": missing,
+    }
+    if exc is not None:
+        out["detail"] = f"{type(exc).__name__}: {exc}"[:300]
+    if missing:
+        out["fix"] = (
+            "Add " + " and ".join(missing) + " in Vercel → Settings → Environment "
+            "Variables (Production), then redeploy. Use Neon's POOLER connection string, "
+            "not the direct endpoint."
+        )
+    elif not artifact_present:
+        out["fix"] = ("Environment looks complete, so the store connection itself failed — "
+                      "see 'detail'. Check the Neon project is not suspended and that the "
+                      "connection string is the pooler endpoint.")
+    return out
+
+
 class handler(BaseHTTPRequestHandler):  # noqa: N801 — Vercel expects this exact name
     def do_GET(self):  # noqa: N802
         params = parse_qs(urlparse(self.path).query)
@@ -235,6 +278,10 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 — Vercel expects this exa
         # Prefer the live store when one is configured. The bundled artifact cannot hold
         # the current corpus — 59,306 passages exceed what belongs in a function bundle —
         # so it now serves only preview deployments with no database attached.
+        #
+        # Every failure below reports WHICH precondition is missing. A generic
+        # "no search index available" sent a real deployment on a hunt through four
+        # possible causes; the function knows which one it hit, so it should say.
         try:
             from oncolens.serve.live_query import get_live_index
             from oncolens.serve.neon_store import EmbeddingMismatch
@@ -250,18 +297,28 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 — Vercel expects this exa
                     return self._send(503, {
                         "error": "index/query embedding mismatch",
                         "detail": str(e)[:400],
+                        "fix": "run scripts/reembed_store.py, or set "
+                               "ONCOLENS_EMBED_BACKEND to match the stored index",
                     })
-        except ImportError:
-            pass  # psycopg absent in a minimal build; artifact path still works
+                except Exception as e:  # noqa: BLE001
+                    return self._send(503, _diagnose(e))
+        except ImportError as e:
+            # src/ missing from the bundle is a DEPLOYMENT error, not a missing feature:
+            # Vercel's Python builder ships only the function file unless includeFiles
+            # names the rest, so this import is the first thing to fail in production
+            # while working perfectly on a laptop.
+            if not os.environ.get("ONCOLENS_ALLOW_ARTIFACT_FALLBACK"):
+                return self._send(503, {
+                    "error": "server package not available in this deployment",
+                    "detail": str(e)[:200],
+                    "fix": 'vercel.json must set "includeFiles": "src/**" for this '
+                           "function, or the oncolens package is not on sys.path",
+                })
 
         try:
             payload = get_index().search(query, top_k=top_k)
         except FileNotFoundError:
-            return self._send(503, {
-                "error": "no search index available",
-                "hint": "set POSTGRES_URL to serve from Neon, or run "
-                        "`python scripts/build_artifact.py` to bundle a snapshot",
-            })
+            return self._send(503, _diagnose(None))
         except Exception as e:  # never leak a stack trace to the client
             return self._send(500, {"error": "search failed", "detail": str(e)[:200]})
         return self._send(200, payload)

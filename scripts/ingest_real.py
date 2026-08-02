@@ -98,6 +98,11 @@ def main() -> int:
                          "seed queries. Used for snowball expansion along the citation "
                          "graph: see scripts/build_citation_labels.py --snowball-out")
     ap.add_argument("--embed-dim", type=int, default=192)
+    ap.add_argument("--embed-backend", default="openai",
+                    choices=["openai", "openai-large", "lsa", "voyage"],
+                    help="MEASURED on 2,225 citation queries: openai scores nDCG@10 "
+                         "0.4526 hybrid vs 0.3647 for lsa, and the lsa arm was actively "
+                         "harmful (bm25 alone beat lsa+bm25). Default changed accordingly.")
     ap.add_argument("--no-blob", action="store_true",
                     help="skip Blob upload even if a token is present")
     args = ap.parse_args()
@@ -229,12 +234,16 @@ def main() -> int:
 
     # ---- 5. chunks + embeddings -> Postgres/pgvector -------------------------
     import psycopg
-    from oncolens.retrieval.dense import LsaBackend
+    from oncolens.retrieval.dense import make_backend
     from oncolens.serve import neon_store
 
     texts = [c.indexable_text(include_heading=True) for c in chunks]
-    print(f"embedding {len(texts)} passages (dim={args.embed_dim})...")
-    backend = LsaBackend(dim=args.embed_dim)
+    print(f"embedding {len(texts)} passages "
+          f"(backend={args.embed_backend}, dim={args.embed_dim})...")
+    # Embedding at ingest time rather than in a second pass matters for storage: a
+    # separate re-embed UPDATEs every row, which under MVCC grows the table by its own
+    # size and breached Neon's project limit. Inserting the right vectors once avoids it.
+    backend = make_backend(args.embed_backend, dim=args.embed_dim)
     backend.fit(texts)
     vectors = backend.encode_documents(texts)
 
@@ -248,6 +257,9 @@ def main() -> int:
             "text": c.text, "indexed_text": t,
         } for c, t in zip(chunks, texts)]
         n_chunks = neon_store.upsert_chunks(conn, rows, vectors.tolist())
+        neon_store.set_index_config(
+            conn, **{neon_store.CFG_EMBED_MODEL: args.embed_backend,
+                     neon_store.CFG_EMBED_DIM: str(args.embed_dim)})
     print(f"  {n_docs} documents, {n_chunks} passages in Postgres")
 
     # ---- 6. real qrels from NLM human indexing ------------------------------

@@ -19,6 +19,8 @@ type Stage = {
 type Power = {
   stratum: string; queries: number; judgments: number; weight: number | null;
   gate_metric: string; mde: number; sees_002: boolean;
+  /** "measured from paired bootstrap CI" vs the conservative analytic fallback. */
+  mde_source?: string; mde_analytic?: number;
 };
 type Journey = {
   generated_at: string; git_rev: string; live_store_reachable: boolean;
@@ -86,6 +88,40 @@ function LiveMetric({ m }: { m: Metric }) {
         </code>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A number that lights from within on hover.
+ *
+ * Used for the figures a reader is meant to interrogate rather than skim: benchmark
+ * scores, effect sizes, sample sizes. The glow sits BEHIND the digits and eases in on the
+ * shared clock, so a table of these reads as instrumentation rather than as a row of
+ * hover states firing independently.
+ */
+function LiveNumber({
+  children, tone = "neutral", title,
+}: { children: React.ReactNode; tone?: "neutral" | "good" | "bad"; title?: string }) {
+  const [hover, setHover] = useState(false);
+  const color: [number, number, number] =
+    tone === "good" ? [0.42, 0.92, 0.70]
+    : tone === "bad" ? [0.98, 0.55, 0.60]
+    : [0.36, 0.79, 0.87];
+  const text =
+    tone === "good" ? "text-emerald-300/90"
+    : tone === "bad" ? "text-rose-300/80"
+    : "text-slate-200";
+  return (
+    <span
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title={title}
+      className="relative inline-block overflow-hidden rounded px-1 py-0.5"
+    >
+      <WebGLAccent variant="glow" hover={hover} color={color}
+                   className="absolute inset-0 h-full w-full" />
+      <span className={`relative font-mono tabular-nums ${text}`}>{children}</span>
+    </span>
   );
 }
 
@@ -174,6 +210,57 @@ const QUERY_TYPES = [
       "Blocking antibodies against PD-1 or PD-L1 have demonstrated substantial clinical "
       + "activity in patients with metastatic melanoma, renal cell carcinoma, non-small "
       + "cell lung cancer, and other tumors.",
+  },
+];
+
+/** The retrieval pipeline, in the order a query passes through it. */
+const PIPELINE = [
+  {
+    n: "01",
+    title: "Ingest",
+    sub: "PubMed + PMC Open Access",
+    body: "Papers arrive as verbatim full text, never abstracts. Bibliographies are "
+        + "stripped before indexing: they are a median 19% of an article's characters and "
+        + "they match queries lexically while containing no findings.",
+  },
+  {
+    n: "02",
+    title: "Chunk",
+    sub: "~900 characters, offsets preserved",
+    body: "Each passage keeps (doc_id, section, start_char, end_char) back to its source. "
+        + "That provenance is the product: a retrieval change that improves ranking but "
+        + "loses it is a regression, not a trade.",
+  },
+  {
+    n: "03",
+    title: "Index",
+    sub: "BM25 + dense vectors in Postgres",
+    body: "A lexical index over the passage text and a pgvector column of embeddings, in "
+        + "the same database as the documents, so grants and authors can be joined "
+        + "against retrieval results.",
+  },
+  {
+    n: "04",
+    title: "Retrieve",
+    sub: "two arms, fused by rank",
+    body: "The query runs against BM25 and the dense index independently. Reciprocal Rank "
+        + "Fusion combines the two ranked lists rather than their scores, because BM25 "
+        + "scores are unbounded while cosine similarity lives in [-1, 1] and a naive sum "
+        + "is dominated by whichever has the larger numeric range.",
+  },
+  {
+    n: "05",
+    title: "Aggregate",
+    sub: "passages to documents",
+    body: "A document scores as its single best passage. That is a real choice: rewarding "
+        + "one decisive passage rather than a paper that is vaguely relevant throughout.",
+  },
+  {
+    n: "06",
+    title: "Serve",
+    sub: "the passage, with its offsets",
+    body: "Results carry the matched clause and the characters it sits at, so a claim can "
+        + "be checked against the paper instead of trusted.",
   },
 ];
 
@@ -444,6 +531,107 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
           </section>
         ) : null}
 
+        {/* ---------- how the system is built ---------- */}
+        <section className="border-b border-white/8 py-14">
+          <SectionHeading>How it works</SectionHeading>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-400">
+            A query takes six steps from typed text to a cited passage. The one design rule
+            everything else defers to is that a result must be able to point back at its
+            source, because a claim you cannot check is a claim a generator can invent.
+          </p>
+
+          <ol className="mt-7 grid gap-px overflow-hidden rounded-lg bg-white/8 sm:grid-cols-2 lg:grid-cols-3">
+            {PIPELINE.map((s) => (
+              <li key={s.n} className="bg-[#080d16] p-4">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-[11px] text-cyan-300/70">{s.n}</span>
+                  <h3 className="text-sm font-medium text-white">{s.title}</h3>
+                </div>
+                <p className="mt-0.5 font-mono text-[10px] uppercase tracking-wider text-slate-600">
+                  {s.sub}
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-400">{s.body}</p>
+              </li>
+            ))}
+          </ol>
+
+          <h3 className="mt-12 text-sm font-medium text-white">
+            The dense arm, and why the model choice was not obvious
+          </h3>
+          <div className="mt-3 max-w-2xl space-y-3 text-sm leading-relaxed text-slate-400">
+            <p>
+              The lexical arm matches words. The dense arm is supposed to match{" "}
+              <span className="text-slate-200">meaning</span>, so that a search for
+              &ldquo;EGFR TKI resistance&rdquo; finds a paper that only ever says
+              &ldquo;osimertinib&rdquo;. Which embedding model does that best for oncology
+              is a measurable question, and the answer was not the one we expected.
+            </p>
+            <p>
+              <span className="text-slate-200">MedCPT</span> is NCBI&apos;s biomedical
+              retriever, trained contrastively on 255 million real
+              (query, clicked-article) pairs harvested from PubMed itself. It is a model of
+              what biomedical researchers actually search for and which paper they then
+              opened. It uses two separate encoders, one for queries and one for articles,
+              because a two-word query and a 900-character passage are not the same kind of
+              object. Against it we ran{" "}
+              <span className="text-slate-200">text-embedding-3-small</span>, a general
+              model, at the same 768 dimensions specifically so that a MedCPT win could not
+              be confused with simply having four times the vector capacity.
+            </p>
+            <p>
+              <span className="text-slate-200">MedCPT turned out to be a trade, not an
+              upgrade.</span> It is a better topical matcher and a worse pinpointer: it won
+              literature-review coverage decisively and significantly regressed
+              find-the-source. Click data encodes &ldquo;this article is about what you
+              asked&rdquo;, not &ldquo;this is the exact sentence you want&rdquo;, and the
+              smoothing that lifts topical recall costs exact attribution.
+            </p>
+            <p>
+              What worked was refusing to choose. Running{" "}
+              <span className="text-slate-200">both</span> dense models alongside BM25 and
+              fusing three ranked lists beat either model alone on both query types, and
+              cancelled the regression entirely. Arms that are individually competent and
+              wrong about <em className="not-italic text-slate-200">different</em> queries
+              are exactly when rank fusion pays.
+            </p>
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[520px] text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-white/10">
+                  <th className="py-2 pr-4 font-normal">dense arm</th>
+                  <th className="py-2 pr-4 text-right font-normal">review coverage</th>
+                  <th className="py-2 pr-4 text-right font-normal">find the source</th>
+                  <th className="py-2 pr-4 font-normal">deployable</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-300">
+                {[
+                  ["MedCPT alone", "+0.0261", "−0.0166", true, false, "needs a hosted GPU endpoint"],
+                  ["general model, 768-dim", "+0.0016", "+0.0128", false, true, "one API call"],
+                  ["all three, fused", "+0.0305", "+0.0321", true, true, "both of the above"],
+                ].map(([name, syn, clm, synGood, clmGood, deploy]) => (
+                  <tr key={String(name)} className="border-b border-white/5">
+                    <td className="py-2.5 pr-4 font-medium text-white">{name}</td>
+                    <td className={`py-2.5 pr-4 text-right font-mono tabular-nums ${
+                      synGood ? "text-emerald-300/90" : "text-slate-500"}`}>{syn}</td>
+                    <td className={`py-2.5 pr-4 text-right font-mono tabular-nums ${
+                      clmGood ? "text-emerald-300/90" : "text-rose-300/80"}`}>{clm}</td>
+                    <td className="py-2.5 pr-4 text-[11px] text-slate-500">{deploy}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 max-w-2xl text-xs leading-relaxed text-slate-500">
+            Measured on the dev split, both gains significant at p &lt; 0.0001. The fused
+            configuration is <span className="text-slate-300">not shipped</span>: two
+            controls that would attribute its gain have not run, two of the four query
+            types were not evaluated, and the locked test split is unspent.
+          </p>
+        </section>
+
         {/* ---------- how to use ---------- */}
         <section className="border-b border-white/8 py-14">
           <SectionHeading>Using it</SectionHeading>
@@ -596,10 +784,15 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
                         <td className="py-2.5 pr-4 font-mono text-[11px] text-slate-400">
                           {r.gate_metric}
                         </td>
-                        <td className={`py-2.5 pr-4 text-right font-mono tabular-nums ${
-                          r.sees_002 ? "text-emerald-300/90" : "text-amber-300/80"}`}>
-                          {r.mde.toFixed(3)}
-                          <span className="ml-1.5 text-[10px] uppercase tracking-wider">
+                        <td className="py-2.5 pr-4 text-right">
+                          <LiveNumber
+                            tone={r.sees_002 ? "good" : "bad"}
+                            title={r.mde_source ?? "minimum detectable effect"}
+                          >
+                            {r.mde.toFixed(4)}
+                          </LiveNumber>
+                          <span className={`ml-1.5 text-[10px] uppercase tracking-wider ${
+                            r.sees_002 ? "text-emerald-300/70" : "text-amber-300/70"}`}>
                             {r.sees_002 ? "sees 0.02" : "blind below"}
                           </span>
                         </td>
@@ -649,12 +842,24 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
                     ))}
                   </tr>
                 </thead>
-                <tbody className="font-mono tabular-nums text-slate-400">
+                <tbody className="text-slate-400">
                   {retrieval.systems.map((row) => (
                     <tr key={String(row.system)} className="border-b border-white/5">
                       {Object.entries(row).map(([k, v]) => (
-                        <td key={k} className={`py-2 pr-4 ${k === "system" ? "font-sans text-slate-300" : "text-right"}`}>
-                          {typeof v === "number" ? v.toFixed(4) : String(v)}
+                        <td key={k} className={`py-2 pr-4 ${
+                          k === "system" ? "font-sans text-slate-300" : "text-right"}`}>
+                          {typeof v === "number" ? (
+                            <LiveNumber
+                              tone={k === "unjudged@10" ? "neutral" : "good"}
+                              title={k === "unjudged@10"
+                                ? "diagnostic, not a score: the fraction of returned documents nobody judged"
+                                : `${k} on ${row.system}`}
+                            >
+                              {v.toFixed(4)}
+                            </LiveNumber>
+                          ) : (
+                            String(v)
+                          )}
                         </td>
                       ))}
                     </tr>
@@ -671,31 +876,6 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
           ) : null}
         </section>
 
-        {/* ---------- what the loop found ---------- */}
-        <section className="border-b border-white/8 py-14">
-          <SectionHeading>What the improvement loop found</SectionHeading>
-          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-400">
-            Every candidate states, before it runs, which query type it should help and
-            which it should not. The loop records predictions and outcomes together, so a
-            result that was not predicted is logged as a surprise to test next round, never
-            claimed as a win.
-          </p>
-          <ul className="mt-6 space-y-4">
-            {[
-              ["One fusion weight is wrong in both directions",
-               "Dropping the lexical arm hurt 2-word queries (−0.0707, p=0.0008); doubling it hurt conceptual ones. The optimal weight depends on query shape, a finding that only exists because the query types are scored separately."],
-              ["A gate that could not be passed",
-               "Reranking reorders the top 24 passages without changing which documents are in the top 20, so coverage moved by exactly 0.0000 and the reranker was structurally unable to win, however good it was."],
-              ["The evaluation is underpowered, and that is the bottleneck",
-               "At the current corpus size the smallest detectable effect is 0.043 on synthesis and 0.062 on concept. Every promising result so far sits below those floors, reported as “no significant change” by construction, which looks like rigour and is blindness."],
-            ].map(([t, b]) => (
-              <li key={t} className="border-l-2 border-white/10 pl-4">
-                <h3 className="text-sm font-medium text-white">{t}</h3>
-                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-400">{b}</p>
-              </li>
-            ))}
-          </ul>
-        </section>
 
         <footer className="py-12 text-xs leading-relaxed text-slate-500">
           {journey ? (

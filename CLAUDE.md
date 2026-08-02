@@ -71,6 +71,19 @@ non-directory`), so the trick used for the Python venv does not transfer. `node_
 has to live in the synced folder. It is `.gitignore`d, but OneDrive still syncs it —
 exclude the folder in the OneDrive client if sync churn becomes a problem.
 
+**`.next` hits the same thing, and the error names the wrong culprit.** A rebuild failed
+with
+
+```
+[Error: EINVAL: invalid argument, readlink '...\.next\server\app-paths-manifest.json']
+```
+
+`readlink` on a file that is not a link is OneDrive having turned a build artifact into a
+placeholder mid-build. `tsc --noEmit` passed cleanly at the same moment, which is the tell:
+a type error is in the source, an `EINVAL` on a manifest is in the filesystem.
+`rm -rf .next` and rebuild. Same rule as §2.1 — when a tool blames itself or the code,
+check the layer underneath before believing it.
+
 ## 3. Data sources, and the deadline
 
 | Source | Gives | Access |

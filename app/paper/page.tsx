@@ -68,6 +68,31 @@ export default function PaperPage() {
     return out;
   }, [paper]);
 
+  /**
+   * The abstract is pulled OUT of the section list and given its own panel.
+   *
+   * It arrives as just another section, which is correct for retrieval and wrong for
+   * reading: it is the one part of a paper that exists to orient someone before they
+   * commit to the rest, so burying it as the first of forty passages wastes it. It stays
+   * collapsible because a reader who arrived from a search result is here for a specific
+   * passage further down, not for the summary.
+   */
+  const abstract = useMemo(
+    () => sections.find((s) => /^abstract$/i.test(s.name)) ?? null,
+    [sections],
+  );
+  const body = useMemo(
+    () => sections.filter((s) => !/^abstract$/i.test(s.name)),
+    [sections],
+  );
+  const abstractText = useMemo(
+    () => (abstract ? abstract.passages.map((p) => p.text).join("\n\n") : ""),
+    [abstract],
+  );
+  // Collapsed by default when a highlight sent the reader to a passage further down.
+  const [showAbstract, setShowAbstract] = useState(true);
+  useEffect(() => { if (highlight) setShowAbstract(false); }, [highlight]);
+
   useEffect(() => {
     if (paper && highlight) {
       hitRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -145,10 +170,49 @@ export default function PaperPage() {
               )}
             </header>
 
+            {/* ---------- abstract ---------- */}
+            {abstract && (
+              <section className="mt-6">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowAbstract((v) => !v)}
+                    aria-expanded={showAbstract}
+                    className="flex items-center gap-2 rounded-md border border-teal/30 bg-teal/10 px-3 py-1.5 text-xs font-medium text-teal transition-colors hover:border-teal/60 hover:bg-teal/15"
+                  >
+                    <span className={`inline-block transition-transform ${showAbstract ? "rotate-90" : ""}`}>
+                      ▸
+                    </span>
+                    {showAbstract ? "Hide abstract" : "Show abstract"}
+                  </button>
+                  <span className="font-mono text-[10px] text-slate-600">
+                    {abstractText.length.toLocaleString()} chars
+                  </span>
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(abstractText)}
+                    className="text-[11px] text-slate-500 transition-colors hover:text-slate-300"
+                  >
+                    copy
+                  </button>
+                </div>
+                {showAbstract && (
+                  <div className="mt-3 rounded-lg border border-teal/20 bg-teal/[0.04] p-4">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-teal/60">
+                      Abstract
+                    </p>
+                    <div className="mt-2 space-y-3 text-[15px] leading-7 text-slate-300">
+                      {abstract.passages.map((p) => (
+                        <p key={p.chunk_id}>{p.text}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
+
             {/* The article. Reference lists were stripped at ingest, so what is here is
                 body text: see CLAUDE.md 4.1 for why that matters to precision. */}
             <article className="mt-8 space-y-8">
-              {sections.map((s) => (
+              {body.map((s) => (
                 <section key={s.name}>
                   <h2 className="sticky top-0 -mx-2 bg-[#060B14]/90 px-2 py-1.5 text-[10px] uppercase tracking-[0.16em] text-cyan-300/60 backdrop-blur-sm">
                     {s.name}

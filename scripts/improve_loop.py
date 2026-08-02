@@ -234,7 +234,18 @@ def load_chunks(*, with_embeddings: bool = True) -> tuple[list[dict], dict[str, 
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
         cur.execute("SELECT k, v FROM index_config")
         cfg = {k: v for k, v in cur.fetchall()}
-        cur.execute(f"SELECT {cols} FROM chunks")
+        # ORDER BY IS LOAD-BEARING, NOT TIDINESS.
+        #
+        # Postgres guarantees no row order without it, and the embedding disk cache is
+        # keyed on a hash of the texts IN ORDER. Two runs over an identical corpus
+        # therefore produced different keys and the cache missed every single time —
+        # observed directly as two 617 MB MedCPT caches written 35 minutes apart for the
+        # same 105,250 passages, each costing ~7 minutes of GPU, and an openai-768 miss
+        # would have cost another ~20 minutes and ~$0.55 of API calls.
+        #
+        # A cache that misses nondeterministically is worse than no cache: it looks like
+        # it is working, so nobody checks.
+        cur.execute(f"SELECT {cols} FROM chunks ORDER BY chunk_id")
         rows = cur.fetchall()
     out = []
     for r in rows:

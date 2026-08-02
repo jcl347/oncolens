@@ -728,7 +728,18 @@ open (see README). Running it would produce confident numbers that are artifacts
    class": a sample whose composition does not match the population it is used to
    describe.)*
 
-6. **A GPU throughput claim that did not transfer between machines.** The note "batch 16
+6. **A `SELECT` with no `ORDER BY`, feeding a content-addressed cache.** The embedding disk
+   cache hashes the texts *in order*. `load_chunks()` selected from `chunks` with no
+   ordering, and Postgres guarantees none — so two runs over an identical corpus produced
+   different cache keys and **the cache missed every time**. Caught by noticing two 617 MB
+   MedCPT caches written 35 minutes apart for the same 105,250 passages; each miss costs
+   ~7 minutes of GPU, and the openai-768 equivalent costs ~20 minutes and ~$0.55 of API
+   calls. A cache that misses *nondeterministically* is worse than no cache, because it
+   looks like it is working and nobody checks. Fixed in `improve_loop` and
+   `bench_retrieval`; the rule is that any query whose row order is consumed — by a cache
+   key, a matrix row index, or a hash — needs `ORDER BY` even when it looks decorative.
+
+7. **A GPU throughput claim that did not transfer between machines.** The note "batch 16
    costs ~30% throughput" was measured on an RTX 4060. On an RTX 4070 the same setting
    costs **under 10%** (247.5/s vs 271.5/s), because at batch 128 peak VRAM is 1.67 GB of
    12.9 GB — the GPU is not the bottleneck, CPU-side tokenisation is. Hardware-specific

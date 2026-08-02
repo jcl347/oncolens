@@ -1,7 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/search.py": { "memory": 1024, "maxDuration": 30 }
-  },
-  "rewrites": [{ "source": "/search", "destination": "/api/search" }]
+    "api/search.py":   { "memory": 1024, "maxDuration": 30 },
+    "api/compare.py":  { "memory": 1024, "maxDuration": 60 },
+    "api/evaluate.py": { "memory": 512,  "maxDuration": 10 }
+  }
 }

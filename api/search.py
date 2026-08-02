@@ -33,6 +33,7 @@ _ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT / "src"))
 
 from oncolens.retrieval.text import is_rare_literal, tokenize  # noqa: E402
+from oncolens.spans import find_clauses  # noqa: E402
 
 ARTIFACT_DIR = Path(os.environ.get("ONCOLENS_ARTIFACT", _ROOT / "artifact"))
 
@@ -186,6 +187,7 @@ class Index:
         for doc_id, (idx, score) in ranked:
             c = self.chunks[idx]
             d = self.documents.get(doc_id, {})
+            _clauses = find_clauses(c["text"], query, base_offset=c["start_char"], max_clauses=3)
             results.append({
                 "doc_id": doc_id,
                 "title": d.get("title", ""),
@@ -198,6 +200,11 @@ class Index:
                     "chunk_id": c["chunk_id"], "section": c["section"],
                     "start_char": c["start_char"], "end_char": c["end_char"],
                     "text": c["text"],
+                    # Clause-level provenance: the UI highlights the exact span that
+                    # matched, not the whole paragraph. Offsets are section-absolute so a
+                    # viewer can locate them in the original article.
+                    "clauses": [cl.as_dict() for cl in _clauses],
+                    "best_clause": _clauses[0].as_dict() if _clauses else None,
                 },
             })
         return {"query": query, "count": len(results), "results": results}

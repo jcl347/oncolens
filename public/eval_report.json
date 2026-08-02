@@ -1,0 +1,66 @@
+{
+  "generated_at": "2026-08-02T00:11:17.681356+00:00",
+  "split": "dev",
+  "config": "hybrid",
+  "corpus": {
+    "documents": 140,
+    "queries": 116,
+    "corpus_sha": "18267ce83f5162c2",
+    "mean_judged_per_query": 9.92
+  },
+  "metrics": {
+    "ndcg@10": 0.5507,
+    "recall@10": 0.4949,
+    "recall@20": 0.592,
+    "map": 0.465,
+    "mrr": 0.7783
+  },
+  "primary_metric": "ndcg@10",
+  "floor": {
+    "raw_term_frequency": 0.4669,
+    "popularity": 0.1147,
+    "random": 0.0714
+  },
+  "ceiling": 1.0,
+  "headroom": 0.4493,
+  "per_stratum": {
+    "boolean_scope": {
+      "n": 10,
+      "ndcg@10": 0.5318,
+      "recall@10": 0.5977
+    },
+    "conceptual": {
+      "n": 21,
+      "ndcg@10": 0.4688,
+      "recall@10": 0.3098
+    },
+    "lexical": {
+      "n": 13,
+      "ndcg@10": 0.9742,
+      "recall@10": 0.9077
+    },
+    "multi_hop": {
+      "n": 12,
+      "ndcg@10": 0.6439,
+      "recall@10": 0.6251
+    },
+    "paraphrase": {
+      "n": 13,
+      "ndcg@10": 0.1878,
+      "recall@10": 0.1817
+    }
+  },
+  "pool": {
+    "unjudged_at_10": 0.6319,
+    "interpretation": "Fraction of the top 10 that carries no relevance judgment. High values mean the reported score understates true quality by an unknown amount."
+  },
+  "benchmark_validity": [
+    "FLOOR: raw term-frequency scoring (no IDF, no length normalisation, no chunking, no dense arm, no fusion) already reaches ndcg@10=0.4669. Any configuration must clearly beat this to have justified its machinery."
+  ],
+  "caveats": [
+    "unjudged@10 is 0.63: most returned documents have never been judged, so this score is an underestimate of unknown size and comparisons between configurations are not yet interpretable.",
+    "No unanswerable queries are in the evaluation set, so the system's tendency to return results when it should return nothing is unmeasured.",
+    "Some query strata have fewer than 15 queries; per-stratum numbers there are too noisy to support a claim of no regression.",
+    "These numbers describe retrieval against this evaluation set only. They are not a claim about performance on arbitrary oncology literature."
+  ]
+}

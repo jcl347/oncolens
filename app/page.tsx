@@ -1,0 +1,434 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import WebGLBackground from "@/components/WebGLBackground";
+
+/* ---------------------------------------------------------------- types */
+
+type Span = { start: number; end: number; text: string; is_literal: boolean };
+type Clause = { text: string; start: number; end: number; score: number; matched_terms: string[]; spans: Span[] };
+type Passage = {
+  chunk_id: string; section: string; start_char: number; end_char: number; text: string;
+  clauses?: Clause[]; best_clause?: Clause | null;
+};
+type Result = {
+  doc_id: string; title: string; doc_type: string; year: number | null;
+  meta: Record<string, any>; score: number; passage: Passage;
+};
+type Cell = { doc_id: string; aspect: string; reported: boolean; passage: string; section: string; start_char: number; end_char: number; aspect_strength: number };
+type Comparison = { query: string; aspects: string[]; doc_ids: string[]; coverage: number; notes: string[]; cells: Record<string, Record<string, Cell>> };
+type EvalReport = any;
+
+/* ------------------------------------------------------- highlighting */
+
+/**
+ * Render a clause with its matched terms highlighted.
+ *
+ * The spans carry section-absolute offsets, so they are rebased onto the clause before
+ * slicing. Getting this wrong produces highlights that drift a few characters — which
+ * looks like a rendering glitch but is actually a provenance bug, so it is done once here
+ * rather than in each caller.
+ */
+function Highlighted({ clause }: { clause: Clause }) {
+  const parts: React.ReactNode[] = [];
+  let cursor = 0;
+  const rel = clause.spans
+    .map((s) => ({ ...s, s: s.start - clause.start, e: s.end - clause.start }))
+    .filter((s) => s.s >= 0 && s.e <= clause.text.length)
+    .sort((a, b) => a.s - b.s);
+
+  rel.forEach((s, i) => {
+    if (s.s > cursor) parts.push(<span key={`t${i}`}>{clause.text.slice(cursor, s.s)}</span>);
+    parts.push(
+      <mark
+        key={`m${i}`}
+        className={
+          s.is_literal
+            ? "rounded bg-accent/25 px-0.5 font-mono text-accent ring-1 ring-accent/40"
+            : "rounded bg-teal/20 px-0.5 text-teal"
+        }
+        title={s.is_literal ? "exact identifier match" : "term match"}
+      >
+        {clause.text.slice(s.s, s.e)}
+      </mark>
+    );
+    cursor = s.e;
+  });
+  if (cursor < clause.text.length) parts.push(<span key="tail">{clause.text.slice(cursor)}</span>);
+  return <>{parts}</>;
+}
+
+/* --------------------------------------------------------------- page */
+
+export default function Page() {
+  const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<"search" | "compare">("search");
+  const [results, setResults] = useState<Result[]>([]);
+  const [comparison, setComparison] = useState<Comparison | null>(null);
+  const [openDoc, setOpenDoc] = useState<Result | null>(null);
+  const [evalReport, setEvalReport] = useState<EvalReport | null>(null);
+  const [showEval, setShowEval] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/evaluate").then((r) => r.json()).then(setEvalReport).catch(() => {});
+  }, []);
+
+  const run = useCallback(async () => {
+    if (!query.trim()) return;
+    setLoading(true); setError(null); setComparison(null); setResults([]);
+    try {
+      const url = mode === "search"
+        ? `/api/search?q=${encodeURIComponent(query)}&k=10`
+        : `/api/compare?q=${encodeURIComponent(query)}&n=5`;
+      const r = await fetch(url);
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      if (mode === "search") setResults(data.results || []);
+      else setComparison(data);
+    } catch (e: any) {
+      setError(e.message || "request failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [query, mode]);
+
+  const floorGap = useMemo(() => {
+    if (!evalReport?.metrics || !evalReport?.floor) return null;
+    const p = evalReport.metrics[evalReport.primary_metric];
+    const f = evalReport.floor.raw_term_frequency;
+    return p != null && f != null ? p - f : null;
+  }, [evalReport]);
+
+  return (
+    <main className="relative min-h-screen text-slate-200">
+      <WebGLBackground />
+
+      <div className="mx-auto max-w-6xl px-6 py-14">
+        <header className="mb-10">
+          <h1 className="text-4xl font-semibold tracking-tight text-white">
+            Onco<span className="text-teal">Lens</span>
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
+            Retrieval over oncology papers and grants that returns{" "}
+            <span className="text-slate-200">the passage where a concept was mentioned</span> —
+            and sets papers side by side on the same technical dimensions.
+          </p>
+        </header>
+
+        {/* ---------------------------------------------------- query bar */}
+        <div className="rounded-xl border border-edge bg-surface p-4 backdrop-blur-md">
+          <div className="mb-3 flex gap-1.5">
+            {(["search", "compare"] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                  mode === m ? "bg-teal/20 text-teal ring-1 ring-teal/40" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {m === "search" ? "Find passages" : "Compare papers"}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && run()}
+              placeholder={
+                mode === "search"
+                  ? "EGFR C797S resistance…"
+                  : "how do these studies measure ctDNA clearance, and in what cohorts?"
+              }
+              className="flex-1 rounded-lg border border-edge bg-ink/60 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-teal/50 focus:outline-none"
+            />
+            <button
+              onClick={run}
+              disabled={loading}
+              className="rounded-lg bg-teal px-5 py-3 text-sm font-medium text-ink transition hover:bg-teal/85 disabled:opacity-50"
+            >
+              {loading ? "…" : mode === "search" ? "Search" : "Compare"}
+            </button>
+          </div>
+          {error && <p className="mt-3 text-xs text-accent">{error}</p>}
+        </div>
+
+        {/* ------------------------------------------- transparency strip */}
+        {evalReport?.metrics && (
+          <button
+            onClick={() => setShowEval((v) => !v)}
+            className="mt-4 flex w-full items-center gap-4 rounded-lg border border-edge bg-surface/70 px-4 py-2.5 text-left text-xs backdrop-blur-md transition hover:border-teal/30"
+          >
+            <span className="font-mono text-teal">
+              {evalReport.primary_metric} {evalReport.metrics[evalReport.primary_metric]?.toFixed(3)}
+            </span>
+            <span className="text-slate-500">
+              floor {evalReport.floor?.raw_term_frequency?.toFixed(3)} · ceiling {evalReport.ceiling}
+            </span>
+            {floorGap != null && (
+              <span className={floorGap < 0.05 ? "text-accent" : "text-slate-400"}>
+                {floorGap > 0 ? "+" : ""}{floorGap.toFixed(3)} over a no-IDF baseline
+              </span>
+            )}
+            <span className="ml-auto text-slate-500">{showEval ? "hide" : "how is this measured?"}</span>
+          </button>
+        )}
+
+        {showEval && evalReport && <EvalPanel report={evalReport} />}
+
+        {/* --------------------------------------------------- results */}
+        {results.length > 0 && (
+          <section className="mt-8 space-y-3">
+            {results.map((r, i) => (
+              <ResultCard key={r.doc_id} rank={i + 1} result={r} onOpen={() => setOpenDoc(r)} />
+            ))}
+          </section>
+        )}
+
+        {comparison && <ComparisonGrid data={comparison} />}
+      </div>
+
+      {openDoc && <PaperViewer result={openDoc} onClose={() => setOpenDoc(null)} />}
+    </main>
+  );
+}
+
+/* ------------------------------------------------------------ result */
+
+function ResultCard({ rank, result, onOpen }: { rank: number; result: Result; onOpen: () => void }) {
+  const clause = result.passage.best_clause;
+  return (
+    <article className="rounded-xl border border-edge bg-surface p-5 backdrop-blur-md transition hover:border-teal/30">
+      <div className="flex items-baseline gap-3">
+        <span className="font-mono text-xs text-slate-500">{String(rank).padStart(2, "0")}</span>
+        <h3 className="flex-1 text-[15px] font-medium leading-snug text-slate-100">{result.title}</h3>
+        <span className="font-mono text-xs text-teal">{result.score.toFixed(3)}</span>
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-8 text-[11px] text-slate-500">
+        <span className="rounded bg-white/5 px-1.5 py-0.5">{result.doc_type}</span>
+        {result.year && <span>{result.year}</span>}
+        {result.meta?.journal && <span className="italic">{result.meta.journal}</span>}
+        {result.meta?.pmid && (
+          <a
+            href={`https://pubmed.ncbi.nlm.nih.gov/${result.meta.pmid}/`}
+            target="_blank" rel="noreferrer"
+            className="text-teal hover:underline"
+          >
+            PMID {result.meta.pmid}
+          </a>
+        )}
+      </div>
+
+      {/* The clause is the product: not the document, not the paragraph. */}
+      <blockquote className="mt-3 border-l-2 border-teal/40 pl-4 text-sm leading-relaxed text-slate-300">
+        {clause ? <Highlighted clause={clause} /> : result.passage.text.slice(0, 320)}
+      </blockquote>
+
+      <div className="mt-3 flex items-center gap-3 pl-4 text-[11px] text-slate-500">
+        <span className="font-mono">
+          {result.passage.section} · chars {clause?.start ?? result.passage.start_char}–
+          {clause?.end ?? result.passage.end_char}
+        </span>
+        <button onClick={onOpen} className="text-teal hover:underline">
+          open in paper →
+        </button>
+      </div>
+    </article>
+  );
+}
+
+/* ------------------------------------------------------ paper viewer */
+
+/** Full passage with the matched clause highlighted and scrolled into view. */
+function PaperViewer({ result, onClose }: { result: Result; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const { passage } = result;
+  const clause = passage.best_clause;
+  const rel = clause ? { s: clause.start - passage.start_char, e: clause.end - passage.start_char } : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/80 p-6 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="mt-10 w-full max-w-3xl rounded-xl border border-edge bg-ink/95 p-7 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <h2 className="text-lg font-medium leading-snug text-white">{result.title}</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {result.doc_id} · {passage.section}
+              {result.meta?.blob_url && (
+                <>
+                  {" · "}
+                  <a href={result.meta.blob_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">
+                    full text
+                  </a>
+                </>
+              )}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded px-2 py-1 text-slate-500 hover:text-slate-200">✕</button>
+        </div>
+
+        <div className="mt-5 max-h-[60vh] overflow-y-auto rounded-lg bg-black/30 p-5 text-sm leading-7 text-slate-300">
+          {rel && rel.s >= 0 ? (
+            <>
+              {passage.text.slice(0, rel.s)}
+              <span
+                ref={(el) => el?.scrollIntoView({ block: "center", behavior: "smooth" })}
+                className="rounded bg-teal/15 px-1 ring-1 ring-teal/40"
+              >
+                {clause && <Highlighted clause={clause} />}
+              </span>
+              {passage.text.slice(rel.e)}
+            </>
+          ) : (
+            passage.text
+          )}
+        </div>
+
+        {clause && (
+          <p className="mt-3 text-[11px] text-slate-500">
+            Matched on{" "}
+            <span className="font-mono text-teal">{clause.matched_terms.join(", ")}</span> · characters{" "}
+            {clause.start}–{clause.end} of the {passage.section} section
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------------------------------- comparison grid */
+
+function ComparisonGrid({ data }: { data: Comparison }) {
+  return (
+    <section className="mt-8 rounded-xl border border-edge bg-surface p-5 backdrop-blur-md">
+      <div className="mb-4 flex items-baseline gap-3">
+        <h2 className="text-sm font-medium text-slate-200">Technical comparison</h2>
+        <span className="text-xs text-slate-500">
+          {data.doc_ids.length} papers × {data.aspects.length} dimensions · {(data.coverage * 100).toFixed(0)}% of cells evidenced
+        </span>
+      </div>
+
+      {data.notes.map((n, i) => (
+        <p key={i} className="mb-3 rounded border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">{n}</p>
+      ))}
+
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-edge">
+              <th className="p-2 text-left font-medium text-slate-400">Paper</th>
+              {data.aspects.map((a) => (
+                <th key={a} className="p-2 text-left font-medium capitalize text-slate-400">{a}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.doc_ids.map((doc) => (
+              <tr key={doc} className="border-b border-edge/50 align-top">
+                <td className="max-w-[9rem] p-2 font-mono text-[11px] text-teal">{doc}</td>
+                {data.aspects.map((a) => {
+                  const cell = data.cells[doc]?.[a];
+                  return (
+                    <td key={a} className="max-w-xs p-2">
+                      {cell?.reported ? (
+                        <>
+                          <span className="text-slate-300">{cell.passage.slice(0, 170)}…</span>
+                          <span className="mt-1 block font-mono text-[10px] text-slate-600">
+                            {cell.section} {cell.start_char}–{cell.end_char}
+                          </span>
+                        </>
+                      ) : (
+                        // Distinct from an empty cell on purpose: "not reported" is not
+                        // the same claim as "no effect".
+                        <span className="italic text-slate-600">not reported</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------- eval panel */
+
+function EvalPanel({ report }: { report: EvalReport }) {
+  if (report.status === "unavailable") {
+    return (
+      <div className="mt-3 rounded-lg border border-accent/30 bg-accent/10 p-4 text-xs text-accent">
+        {report.message}
+      </div>
+    );
+  }
+  return (
+    <section className="mt-3 rounded-xl border border-edge bg-surface p-5 text-xs backdrop-blur-md">
+      <h3 className="mb-3 text-sm font-medium text-slate-200">How this system is measured</h3>
+
+      <div className="grid gap-5 sm:grid-cols-2">
+        <div>
+          <p className="mb-2 font-medium text-slate-400">Metric panel</p>
+          {Object.entries(report.metrics || {}).map(([k, v]) => (
+            <div key={k} className="flex justify-between border-b border-edge/40 py-1">
+              <span className="font-mono text-slate-500">{k}</span>
+              <span className="font-mono text-slate-200">{(v as number).toFixed(4)}</span>
+            </div>
+          ))}
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+            A panel, not one number — a change that improves one metric while degrading
+            three is a trade, not an improvement.
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-2 font-medium text-slate-400">By query type</p>
+          {Object.entries(report.per_stratum || {}).map(([k, v]: any) => (
+            <div key={k} className="flex justify-between border-b border-edge/40 py-1">
+              <span className="text-slate-500">
+                {k} <span className="text-slate-600">n={v.n}</span>
+              </span>
+              <span className="font-mono text-slate-200">{v["ndcg@10"]?.toFixed(3)}</span>
+            </div>
+          ))}
+          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+            Reported separately because an aggregate mean routinely rises while one query
+            class collapses.
+          </p>
+        </div>
+      </div>
+
+      {report.caveats?.length > 0 && (
+        <div className="mt-5 border-t border-edge pt-4">
+          <p className="mb-2 font-medium text-accent">What these numbers do not establish</p>
+          <ul className="space-y-1.5 text-[11px] leading-relaxed text-slate-400">
+            {report.caveats.map((c: string, i: number) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-accent">·</span>
+                <span>{c}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="mt-4 text-[10px] text-slate-600">
+        Generated {report.generated_at} · corpus {report.corpus?.documents} docs /{" "}
+        {report.corpus?.queries} queries · sha {report.corpus?.corpus_sha}
+      </p>
+    </section>
+  );
+}

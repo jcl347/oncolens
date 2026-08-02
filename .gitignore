@@ -12,3 +12,6 @@ data/*
 !data/.gitkeep
 .env*.local
 .vercel/
+node_modules/
+.next/
+next-env.d.ts

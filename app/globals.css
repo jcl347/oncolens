@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+
+html, body {
+  background: #060B14;
+  /* Fallback gradient when WebGL is unavailable, so the page never renders flat black. */
+  background-image: radial-gradient(1200px 800px at 50% -10%, rgba(16,68,76,0.35), transparent 60%);
+}
+
+::selection { background: rgba(62,174,190,0.3); }
+
+/* Keep long identifiers (EGFR L858R/T790M/C797S) from blowing out narrow table cells. */
+mark { overflow-wrap: anywhere; }

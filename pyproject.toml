@@ -3,9 +3,28 @@ name = "oncolens"
 version = "0.1.0"
 description = "Passage-grounded retrieval over oncology grants and papers, with a rigorous A/B evaluation harness"
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.26", "scipy>=1.11"]
+
+# ⚠️ THIS LIST IS WHAT VERCEL INSTALLS FOR THE SERVERLESS FUNCTIONS.
+#
+# Vercel's Python builder prefers pyproject.toml over requirements.txt when both exist.
+# That cost a live deployment: requirements.txt named psycopg, this file did not, and the
+# deployed function raised "ModuleNotFoundError: No module named 'psycopg'" while every
+# local test passed. Anything the request path imports must therefore be listed HERE, and
+# requirements.txt is kept in sync as documentation for non-Vercel installs.
+#
+# Keep this list to what a REQUEST needs. scipy is deliberately excluded: only the offline
+# LSA fit uses it, dense.py imports it lazily, and the serving path constructs
+# OpenAIBackend, which needs none of it.
+dependencies = [
+    "numpy>=1.26",
+    "psycopg[binary]>=3.1",   # live store queries (serve/live_query.py)
+    "requests>=2.31",         # PubMed/PMC reachability from api/setup.py
+    "openai>=1.40",           # query-side embedding for the measured-best config
+]
 
 [project.optional-dependencies]
+# Offline work: ingestion, benchmarking, the LSA baseline. Not installed on Vercel.
+offline = ["scipy>=1.11", "tiktoken>=0.7"]
 # Enabled when network + credentials are available.
 neural = ["voyageai>=0.3", "anthropic>=0.60"]
 

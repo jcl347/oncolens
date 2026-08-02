@@ -19,10 +19,16 @@ from collections.abc import Sequence
 from typing import Protocol
 
 import numpy as np
-from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import svds
 
 from .text import tokenize
+
+# scipy is imported lazily inside LsaBackend, NOT at module scope.
+#
+# Importing it here made every consumer of this module depend on scipy — including the
+# serverless request path, which only ever constructs OpenAIBackend and needs none of it.
+# Vercel's function bundle and cold start both pay for that, and the LSA backend it
+# supports was measured to be the weakest arm available (nDCG@10 0.3088 against 0.4116 for
+# OpenAI embeddings), so making the whole deployment carry scipy for its sake is backwards.
 
 
 class EmbeddingBackend(Protocol):
@@ -51,7 +57,7 @@ class LsaBackend:
         self.idf: np.ndarray | None = None
         self.components: np.ndarray | None = None  # (dim, vocab)
 
-    def _tfidf(self, texts: Sequence[str], *, fit: bool) -> csr_matrix:
+    def _tfidf(self, texts: Sequence[str], *, fit: bool):
         rows, cols, vals = [], [], []
         docs_tokens = [tokenize(t) for t in texts]
         if fit:
@@ -75,6 +81,8 @@ class LsaBackend:
             for j, c in counts.items():
                 tf = (1.0 + math.log(c)) if self.sublinear_tf else float(c)
                 rows.append(r); cols.append(j); vals.append(tf * self.idf[j])
+        from scipy.sparse import csr_matrix
+
         m = csr_matrix((vals, (rows, cols)), shape=(len(texts), max(1, len(self.vocab))))
         return m
 
@@ -85,6 +93,8 @@ class LsaBackend:
             self.components = np.eye(X.shape[1])[: max(2, k)]
             return
         # svds returns singular triplets in ascending order; reverse for descending.
+        from scipy.sparse.linalg import svds
+
         _, _, vt = svds(X.asfptype(), k=k)
         self.components = vt[::-1].copy()
 

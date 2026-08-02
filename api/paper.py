@@ -62,7 +62,14 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801
         raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "public, max-age=300, s-maxage=3600")
+        # Never let a failure be shared-cached. Neon suspends when idle, so the first
+        # request after a quiet period can 503 while the very next one succeeds; caching
+        # that 503 at the edge turns a one-second wake-up into minutes of "unavailable"
+        # and makes the retry that would have worked look futile.
+        if status >= 400:
+            self.send_header("Cache-Control", "no-store")
+        else:
+            self.send_header("Cache-Control", "public, max-age=300, s-maxage=3600")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)

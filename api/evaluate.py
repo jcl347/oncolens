@@ -39,9 +39,63 @@ sys.path.insert(0, str(_ROOT / "src"))
 REPORT_PATH = Path(os.environ.get("ONCOLENS_EVAL_REPORT", _ROOT / "public" / "eval_report.json"))
 
 
+def live_document_count() -> int | None:
+    """How many documents the SERVED index actually holds. None if unreachable."""
+    dsn = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
+    if not dsn:
+        return None
+    try:
+        import psycopg
+
+        with psycopg.connect(dsn, connect_timeout=5) as conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM documents")
+            return int(cur.fetchone()[0])
+    except Exception:  # noqa: BLE001 — a stale-check must never break the endpoint
+        return None
+
+
+def annotate_applicability(report: dict) -> dict:
+    """Mark whether this report describes the index that is actually being served.
+
+    **The failure this prevents, which was live.** ``public/eval_report.json`` is generated
+    from ``fixtures/synthetic`` — 140 machine-generated documents, 116 queries, strata
+    named ``boolean_scope / conceptual / lexical / multi_hop / paraphrase``. The served
+    index is thousands of real papers with strata ``synthesis / concept / identifier /
+    claim``, and production scores ``ts_rank_cd`` where that harness scored BM25. The
+    search page rendered this report's ``ndcg@10`` in a strip directly above every result
+    list, so the single most prominent number in the product was a synthetic-fixture score
+    presented as this system's measured quality.
+
+    ``fixtures/README.md`` and CLAUDE.md both say a number from the synthetic corpus must
+    never be quoted as evidence about real retrieval. Nothing enforced it, so this does:
+    the endpoint compares the report's corpus against the live store and says plainly when
+    they are not the same thing. The client refuses to show the headline on a mismatch.
+    """
+    corpus = report.get("corpus") or {}
+    reported = corpus.get("documents")
+    live = live_document_count()
+    report["applies_to_served_index"] = None
+    if live is None or reported is None:
+        report["applicability_note"] = (
+            "Could not confirm this report describes the index being served."
+        )
+        return report
+    # Any material difference means a different corpus, not a slightly stale count.
+    same = abs(int(live) - int(reported)) <= max(2, int(reported) * 0.02)
+    report["applies_to_served_index"] = bool(same)
+    report["live_documents"] = live
+    if not same:
+        report["applicability_note"] = (
+            f"This report was generated on a {reported}-document corpus; the index being "
+            f"served holds {live}. The numbers below describe a DIFFERENT corpus and must "
+            f"not be read as this system's retrieval quality."
+        )
+    return report
+
+
 def load_report() -> dict:
     if REPORT_PATH.exists():
-        return json.loads(REPORT_PATH.read_text(encoding="utf-8"))
+        return annotate_applicability(json.loads(REPORT_PATH.read_text(encoding="utf-8")))
     return {
         "status": "unavailable",
         "message": (
@@ -62,7 +116,11 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 — Vercel requires this na
         raw = json.dumps(report, ensure_ascii=False).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "public, max-age=300, s-maxage=3600")
+        # Short cache, not the old hour. This response now depends on a LIVE document
+        # count, so a long s-maxage would keep serving "this report describes a different
+        # corpus" for an hour after a re-measure fixed it, or worse, keep asserting the
+        # report applies after an ingest made it stale.
+        self.send_header("Cache-Control", "public, max-age=60, s-maxage=120")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)

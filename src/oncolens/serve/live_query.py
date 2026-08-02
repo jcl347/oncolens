@@ -98,9 +98,23 @@ class LiveIndex:
 def _shape(row: dict, query: str) -> dict:
     """Attach clause offsets so the UI can highlight the matched span.
 
-    The offsets are section-relative and computed here rather than stored, because they
+    The offsets are section-absolute and computed here rather than stored, because they
     depend on the query. ``start_char``/``end_char`` on the row locate the passage inside
-    its section; the clause offsets locate the match inside the passage.
+    its section; ``base_offset`` rebases the clause offsets onto the same scale.
+
+    **This must emit the SAME SHAPE as the artifact path in ``api/search.py``, and for a
+    long time it did not.** Production takes this branch whenever ``POSTGRES_URL`` is set,
+    so the divergence was the only thing users ever saw. It dropped ``best_clause``,
+    ``doc_type`` and ``meta``, hand-rolled the clause dicts without ``matched_terms`` or
+    ``spans``, and computed clause offsets with no ``base_offset``. The client reads
+    ``passage.best_clause``, got ``undefined``, and fell back to a raw 320-character
+    truncation: **no highlight rendered on any query, on the only path production uses**,
+    and the PubMed link never appeared because the PMID was buried in a ``source`` object
+    the client does not read.
+
+    That is §4.11's compare-view drift repeated here. The lesson produced a contract test
+    for ``/api/compare`` and was not extended to ``/api/search``;
+    ``tests/test_search_contract.py`` now covers both sides.
     """
     from ..spans import find_clauses
 
@@ -109,19 +123,26 @@ def _shape(row: dict, query: str) -> dict:
     # entire point of the product rather than raising.
     p = row.get("passage") or {}
     text = p.get("text") or row.get("text") or ""
+    # base_offset is load-bearing: without it the clause offsets are passage-relative
+    # while passage.start_char is section-absolute, so the UI prints a character range
+    # that does not exist in the source article.
+    base = p.get("start_char") or 0
     try:
-        clauses = [
-            {"start": c.start, "end": c.end, "score": round(float(c.score), 4),
-             "text": text[c.start : c.end]}
-            for c in find_clauses(text, query)[:3]
-        ]
+        found = find_clauses(text, query, base_offset=base, max_clauses=3)
     except Exception:  # noqa: BLE001 — highlighting must never break a result
-        clauses = []
+        found = []
+    clauses = [c.as_dict() for c in found]
     meta = row.get("meta") or {}
+    pmid = (row.get("doc_id") or "").replace("PAPER:PMID", "") or None
     return {
         "doc_id": row.get("doc_id"),
         "title": row.get("title"),
+        "doc_type": row.get("doc_type") or "paper",
         "year": row.get("year"),
+        # The client reads meta.pmid / meta.journal directly. Carry the stored metadata
+        # through and guarantee pmid, which is derivable from doc_id even when the row
+        # has no meta at all.
+        "meta": {**meta, "pmid": meta.get("pmid") or pmid},
         "score": round(float(row.get("score") or 0.0), 6),
         "passage": {
             "chunk_id": p.get("chunk_id"),
@@ -130,9 +151,11 @@ def _shape(row: dict, query: str) -> dict:
             "end_char": p.get("end_char"),
             "text": text,
             "clauses": clauses,
+            "best_clause": clauses[0] if clauses else None,
         },
+        # Retained for any consumer that already reads it; `meta` above is what the UI uses.
         "source": {
-            "pmid": (row.get("doc_id") or "").replace("PAPER:PMID", "") or None,
+            "pmid": pmid,
             "pmcid": meta.get("pmcid"),
             "license": meta.get("license_code"),
             "blob_url": meta.get("blob_url"),
@@ -240,13 +263,20 @@ def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
                     cells[key] = {"reported": False, "text": None}
                     continue
                 filled += 1
+                # SEND THE PASSAGE WHOLE. It used to be clipped to 700 characters while
+                # start_char/end_char still described the full span (chunks target 900 and
+                # cap at 1600), and the viewer captioned it "verbatim, at the offsets
+                # above". The offsets therefore did not bound the text shown, which is the
+                # one rule broken silently. Worse for numeric aspects: the digit that
+                # qualified the cell could sit in the discarded tail, so a cohort cell
+                # could contain no cohort number.
                 cells[key] = {
                     "reported": True,
                     "chunk_id": row[1],
                     "section": row[2],
                     "start_char": row[3],
                     "end_char": row[4],
-                    "text": (row[5] or "")[:700],
+                    "text": row[5] or "",
                     "score": round(float(row[6]), 4),
                 }
 

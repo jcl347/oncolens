@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import WebGLAccent from "@/components/WebGLAccent";
 import WebGLBackground from "@/components/WebGLBackground";
 
@@ -92,6 +92,10 @@ export default function Page() {
   const [runHover, setRunHover] = useState(false);
   /** Set when a query arrives from the URL, cleared once it has been dispatched. */
   const [pending, setPending] = useState<string | null>(null);
+  /** Monotonic request id: only the newest in-flight request may write state. */
+  const seqRef = useRef(0);
+  /** The query the visible results actually answer, which can lag the input box. */
+  const [ranQuery, setRanQuery] = useState("");
 
   useEffect(() => {
     fetch("/api/evaluate").then((r) => r.json()).then(setEvalReport).catch(() => {});
@@ -129,20 +133,43 @@ export default function Page() {
 
   const run = useCallback(async () => {
     if (!query.trim()) return;
+    // SEQUENCE THE REQUESTS. Without this, typing "EGFR", hitting Enter, refining to
+    // "EGFR C797S" and hitting Enter again leaves whichever response lands LAST on
+    // screen, and nothing on the page names the query the list came from. For a tool
+    // whose output gets cited, showing passages that answer a question the user already
+    // replaced is the worst failure available.
+    const mine = ++seqRef.current;
+    const forMode = mode;
     setLoading(true); setError(null); setComparison(null); setResults([]);
+    setRanQuery(query);
     try {
-      const url = mode === "search"
+      const url = forMode === "search"
         ? `/api/search?q=${encodeURIComponent(query)}&k=10`
         : `/api/compare?q=${encodeURIComponent(query)}&n=5`;
       const r = await fetch(url);
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
-      if (mode === "search") setResults(data.results || []);
+      // Read as TEXT first. A gateway timeout or a cold-start failure returns an HTML
+      // error page, and calling r.json() on it throws "Unexpected token '<'", which reads
+      // to a researcher as a browser bug and hides the one useful fact: retrying against
+      // a warm container usually works.
+      const raw = await r.text();
+      let data: any = null;
+      try { data = JSON.parse(raw); } catch { /* not JSON: handled below */ }
+      if (!r.ok || data === null) {
+        throw new Error(
+          data?.error
+            ?? (r.status === 504 || r.status === 502
+                ? "The server took too long to answer. This usually clears on a retry: the database sleeps when idle and the first query wakes it."
+                : `The server returned ${r.status} and not a result. Try again in a moment.`)
+        );
+      }
+      if (mine !== seqRef.current) return;   // a newer query superseded this one
+      if (forMode === "search") setResults(data.results || []);
       else setComparison(data);
     } catch (e: any) {
+      if (mine !== seqRef.current) return;
       setError(e.message || "request failed");
     } finally {
-      setLoading(false);
+      if (mine === seqRef.current) setLoading(false);
     }
   }, [query, mode]);
 
@@ -219,8 +246,14 @@ export default function Page() {
           {error && <p className="mt-3 text-xs text-accent">{error}</p>}
         </div>
 
-        {/* ------------------------------------------- transparency strip */}
-        {evalReport?.metrics && (
+        {/* ------------------------------------------- transparency strip
+            The headline score is shown ONLY when the server confirms the report describes
+            the index being served. It previously rendered ndcg@10 from the 140-document
+            synthetic fixture directly above real results, which is the exact thing
+            fixtures/README.md and CLAUDE.md forbid: a number machine-generated data
+            produced, presented as this system's measured quality. On a mismatch the strip
+            says so instead of quoting it. */}
+        {evalReport?.metrics && evalReport.applies_to_served_index !== false && (
           <button
             onClick={() => setShowEval((v) => !v)}
             className="mt-4 flex w-full items-center gap-4 rounded-lg border border-edge bg-surface/70 px-4 py-2.5 text-left text-xs backdrop-blur-md transition hover:border-teal/30"
@@ -239,12 +272,28 @@ export default function Page() {
             <span className="ml-auto text-slate-500">{showEval ? "hide" : "how is this measured?"}</span>
           </button>
         )}
+        {evalReport?.applies_to_served_index === false && (
+          <p className="mt-4 rounded-lg border border-amber-400/25 bg-amber-400/[0.04] px-4 py-2.5 text-xs leading-relaxed text-amber-200/70">
+            {evalReport.applicability_note} See{" "}
+            <a href="/#measurement" className="underline hover:text-amber-100">
+              how this index is measured
+            </a>{" "}
+            for figures that do describe it.
+          </p>
+        )}
 
         {showEval && evalReport && <EvalPanel report={evalReport} />}
 
         {/* --------------------------------------------------- results */}
         {results.length > 0 && (
           <section className="mt-8 space-y-3">
+            {/* Name the query these results answer. The input box can already hold
+                something else by the time they land, and a passage read against the wrong
+                question is the failure this product can least afford. */}
+            <p className="text-xs text-slate-500">
+              {results.length} passages for{" "}
+              <span className="text-slate-300">&ldquo;{ranQuery}&rdquo;</span>
+            </p>
             {results.map((r, i) => (
               <ResultCard key={r.doc_id} rank={i + 1} result={r} onOpen={() => setOpenDoc(r)} />
             ))}
@@ -285,13 +334,17 @@ function ResultCard({ rank, result, onOpen }: { rank: number; result: Result; on
         <span className="rounded bg-white/5 px-1.5 py-0.5">{result.doc_type}</span>
         {result.year && <span>{result.year}</span>}
         {result.meta?.journal && <span className="italic text-slate-400">{result.meta.journal}</span>}
-        {result.meta?.pmid && (
+        {/* Derive from doc_id when meta is absent. The server now always sends
+            meta.pmid, but a card that silently drops its only outbound citation link
+            because one field went missing is not a failure mode worth keeping. */}
+        {(result.meta?.pmid || result.doc_id?.startsWith("PAPER:PMID")) && (
           <a
-            href={`https://pubmed.ncbi.nlm.nih.gov/${result.meta.pmid}/`}
+            href={`https://pubmed.ncbi.nlm.nih.gov/${
+              result.meta?.pmid ?? result.doc_id.replace(/^PAPER:PMID/, "")}/`}
             target="_blank" rel="noreferrer"
             className="text-teal hover:underline"
           >
-            PMID {result.meta.pmid}
+            PMID {result.meta?.pmid ?? result.doc_id.replace(/^PAPER:PMID/, "")}
           </a>
         )}
       </div>

@@ -174,6 +174,21 @@ CANDIDATES: list[Candidate] = [
                   "most expensive candidate here, and only worth it if it beats both",
     ),
     Candidate(
+        "dense_weight_2x", "two arms, dense weighted 2x: the MISSING CELL",
+        "The cheapest experiment available and possibly the one that ends this thread. "
+        "tri_fusion (+0.0305 synthesis) turned out to depend on BOTH a third arm AND the "
+        "1:2 lexical:dense ratio that a third equal-weight arm creates for free: "
+        "rebalancing to 1:1 collapsed it to +0.0021, and a THIRD ARM CARRYING NO NEW "
+        "INFORMATION (dual_dense) still bought +0.0105. But dual_dense confounds arm count "
+        "with weight, so neither control isolates the ratio on its own. This does: two "
+        "arms, dense weighted 2x, no MedCPT, no third voter, nothing to encode. If it "
+        "recovers most of tri_fusion's gain then the whole finding is fusion-weight "
+        "tuning, MedCPT is unnecessary, and there is no hosted GPU endpoint to build.",
+        {"dense_backend": "openai-768", "dense_weight": 2.0},
+        cost_note="free: one config line, no new index, no new model. Answers whether the "
+                  "expensive candidates were ever needed",
+    ),
+    Candidate(
         "tri_fusion_balanced", "tri_fusion with BM25 weighted 2x: the WEIGHT control",
         "CONTROL for tri_fusion, not a proposal, and the same move openai_768 was for "
         "MedCPT. Adding a third arm at equal weight does two things at once: it adds "

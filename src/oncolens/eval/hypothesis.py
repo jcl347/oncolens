@@ -212,6 +212,25 @@ HYPOTHESES: dict[str, Hypothesis] = {
         # drops anyway, the arms are not complementary in the way the deltas suggested.
         null_strata=("claim",),
     ),
+    "dense_weight_2x": Hypothesis(
+        candidate="dense_weight_2x", stratum="synthesis", metric="recall@20",
+        direction="up",
+        # Bounded by the two controls that have already run. dual_dense (3 arms AND the
+        # 1:2 ratio) bought +0.0105; tri_fusion_balanced (MedCPT at 1:1) bought +0.0021.
+        # If the ratio is the active ingredient, the weight-only cell should land near
+        # dual_dense's +0.0105, so anything at or above half of that is the prediction
+        # holding. Registering 0.02 would be registering tri_fusion's number for a
+        # configuration that does not contain tri_fusion's third arm.
+        min_effect=0.005,
+        mechanism="Isolates the lexical:dense RATIO from the arm COUNT, which no control "
+                  "so far separates. Three equal-weight arms silently make the dense side "
+                  "outvote BM25 2:1; this reproduces that ratio with two arms. A gain here "
+                  "means the third arm was a delivery mechanism for a weight change, and "
+                  "the same effect is available for free. A null here means the extra "
+                  "VOTER matters independently of the weight, which is the interesting "
+                  "case and the one that would justify the fusion machinery.",
+        null_strata=(),
+    ),
     "tri_fusion_balanced": Hypothesis(
         candidate="tri_fusion_balanced", stratum="synthesis", metric="recall@20",
         direction="up", min_effect=0.02,

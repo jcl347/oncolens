@@ -68,10 +68,15 @@ class PubMedRecord:
 
 
 def _session():
-    import requests  # imported lazily so the module imports without network deps
-    s = requests.Session()
-    s.headers.update({"User-Agent": "oncolens/0.1 (research retrieval benchmark)"})
-    return s
+    """Shared retrying session — see oncolens.http for why.
+
+    Two long ingests died on transient transport errors from
+    different services; retrying only the module that failed
+    first fixed a location, not the class of bug.
+    """
+    from ..http import session
+
+    return session("pubmed")
 
 
 def _params(extra: dict, email: str | None, api_key: str | None) -> dict:

@@ -539,6 +539,46 @@ rendered *"not reported"*, and React was handed an object as a child. The API al
 Half the product was inert, and no test caught it because there is no test that asserts
 the served JSON against the shape the client expects. **A response shape is an interface.**
 
+### 4.12 The cluster map: a third axis pays, a cleverer projection barely does
+
+The map reported "two dimensions carry 14% of the variance" and was honest about it. Three
+changes, in descending order of how much they were worth:
+
+Measured on the final corpus (1,754 documents, k=14):
+
+| projection | variance retained |
+|---|---|
+| PCA 2-D (before) | 15.1% |
+| **PCA 3-D** | **19.9%** |
+| discriminant 3-D | 19.6% |
+| **cluster assignment, BSS/TSS** | **25.5%** |
+| between-cluster separation kept, PCA 3-D | 57.6% |
+| between-cluster separation kept, discriminant 3-D | **58.7%** |
+
+⚠️ `--k 16` produced a degenerate 14-document cluster with no shared major topic, labelled
+`Cluster 15` by the fallback. k=14 is clean. If the fallback label ever appears, k is too
+high for the corpus, not a labelling failure.
+
+1. **A third axis is free structure** — one float per point, +4.7 points of variance, and
+   it makes a rotating WebGL view possible, which is a better way to read a 3-D cloud than
+   any static picture.
+2. **Reporting the right number matters more than raising it.** "20% of total variance"
+   understates the map badly. The question a reader actually has is *does this picture show
+   me the cluster structure*, and the answer is **~60% of the between-cluster separation is
+   preserved**. Total variance in a 192-dim embedding space is dominated by *within*-cluster
+   spread, which the map is not trying to show.
+3. **The discriminant projection was nearly a wash — say so.** PCA on the size-weighted
+   cluster centroids picks the plane where regions are furthest apart, and it beat plain
+   PCA by **1.3 points** (59.7% vs 58.4%). With k=14 the leading principal axes already
+   align with the dominant cluster structure, so there was little left to recover. It is
+   kept as a toggle because it lets a viewer check that claim, not because it was a win.
+
+Both projections are **linear** — a rotation of the same space, so distances remain a true
+shadow. That is the standing objection to t-SNE, which reshapes neighbourhoods until
+distance and cluster size mean nothing. The discriminant axes are chosen *after* seeing the
+labels, so they flatter the partition; that is a camera angle, not invented structure, and
+the UI names which view is on screen.
+
 ### 4.9 Environment facts learned the expensive way
 
 | Fact | Consequence |

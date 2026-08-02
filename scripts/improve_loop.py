@@ -282,16 +282,31 @@ class Harness:
                    f"{cfg.get('embedding_model')!r}/{cfg.get('embedding_dim')!r}"
                    if cfg else "no index_config recorded")
             print(f"  re-encoding documents ({why})")
-            self.dvecs = be.encode_documents_cached(self.texts,
-                                                    local_data_dir() / "emb_cache")
-        self.qvecs = be.encode_queries([queries[q] for q in self.qids])
+            self.dvecs = self._as_dense(
+                be.encode_documents_cached(self.texts, local_data_dir() / "emb_cache"))
+        self.qvecs = self._as_dense(be.encode_queries([queries[q] for q in self.qids]))
         self._expanded: dict[str, str] | None = None
         self._dense_cache: dict[str, tuple] = {}
+
+    #: Dense matrices are held as float32, not float64.
+    #:
+    #: At 105,250 passages a 768-dim float64 matrix is 646 MB, and the comparison holds
+    #: TWO of them (MedCPT and the openai-768 control) plus the baseline and a BM25 index.
+    #: Measured free RAM on this machine at the time of the run: 2.7 GB of 15.7 GB. float32
+    #: halves every one of those and changes nothing that matters — the vectors are
+    #: L2-normalised and the only operation applied to them is a dot product for ranking.
+    #: `MedCPTBackend._encode` already makes this argument in a comment, casts to float32,
+    #: and then casts straight back to float64.
+    DTYPE = np.float32
+
+    @classmethod
+    def _as_dense(cls, m: np.ndarray) -> np.ndarray:
+        return np.ascontiguousarray(m, dtype=cls.DTYPE)
 
     @staticmethod
     def _parse_stored(chunks: list[dict], dim: int) -> np.ndarray:
         """pgvector comes back as '[0.1,0.2,...]'. Parse and re-normalise."""
-        m = np.zeros((len(chunks), dim), dtype=np.float64)
+        m = np.zeros((len(chunks), dim), dtype=np.float32)
         for i, c in enumerate(chunks):
             v = np.fromstring(str(c["embedding"]).strip("[]"), sep=",")
             if v.shape[0] != dim:
@@ -326,6 +341,7 @@ class Harness:
         else:
             dv = be.encode_documents(self.texts)
         qv = be.encode_queries([self.queries[q] for q in self.qids])
+        dv, qv = self._as_dense(dv), self._as_dense(qv)
         self._dense_cache[backend_name] = (qv, dv)
         return qv, dv
 

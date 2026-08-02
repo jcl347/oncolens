@@ -84,8 +84,6 @@ npm i -g vercel && vercel link
 vercel env pull .env.local          # brings both tokens down
 
 pip install -r requirements-dev.txt "psycopg[binary]"
-set -a && . ./.env.local && set +a  # PowerShell variant in docs/VERCEL_SETUP.md
-
 python scripts/ingest_real.py --max-papers 2000 --email you@org.edu
 ```
 

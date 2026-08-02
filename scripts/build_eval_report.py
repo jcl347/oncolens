@@ -19,6 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from oncolens.configs import BASELINE  # noqa: E402
+from oncolens.env import load_env  # noqa: E402
 from oncolens.data import load_dataset  # noqa: E402
 from oncolens.eval.metrics import CONSENSUS_METRICS, PRIMARY  # noqa: E402
 from oncolens.experiment import run_experiment  # noqa: E402
@@ -33,6 +34,7 @@ def main() -> int:
     ap.add_argument("--split", default="dev", choices=["dev", "test", "all"])
     args = ap.parse_args()
 
+    load_env()
     ds = load_dataset(strict=False)
     lex = Lexicon.load(Path(__import__("os").environ.get("ONCOLENS_DATA", REPO / "data")) / "vocab" / "lexicon.json")
 

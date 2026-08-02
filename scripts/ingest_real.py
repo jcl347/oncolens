@@ -37,6 +37,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
+from oncolens.env import describe_credentials, load_env  # noqa: E402
 from oncolens.retrieval.chunking import chunk_corpus  # noqa: E402
 from oncolens.sources import pmc_cloud, pubmed  # noqa: E402
 
@@ -85,6 +86,24 @@ def main() -> int:
                     help="skip articles whose licence forbids commercial use (default on)")
     ap.add_argument("--embed-dim", type=int, default=192)
     args = ap.parse_args()
+
+    # Read .env.local directly rather than requiring the caller to source it — the
+    # PowerShell incantation for that is the single most error-prone step on Windows.
+    loaded = load_env()
+    if loaded:
+        print(f"loaded {len(loaded)} variables from .env.local")
+    print("credentials:")
+    for line in describe_credentials():
+        print(line)
+    if not args.dry_run:
+        missing = [n for n in ("POSTGRES_URL", "BLOB_READ_WRITE_TOKEN")
+                   if not (os.environ.get(n) or os.environ.get("DATABASE_URL" if n == "POSTGRES_URL" else n))]
+        if missing:
+            print(f"\nERROR: {', '.join(missing)} not set.")
+            print("Run:  vercel link  &&  vercel env pull .env.local")
+            print("Or add --dry-run to fetch papers without writing to any store.")
+            return 1
+    print()
 
     # ---- 1. discover real PMIDs by MeSH query --------------------------------
     per_seed = max(20, args.max_papers // len(SEEDS))

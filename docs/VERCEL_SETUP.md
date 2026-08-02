@@ -71,18 +71,12 @@ pip install "psycopg[binary]"
 npm i -g vercel && vercel link      # once
 vercel env pull .env.local          # pulls BLOB_READ_WRITE_TOKEN + POSTGRES_URL
 
-set -a && . ./.env.local && set +a   # Windows PowerShell: see note below
-
 python scripts/ingest_real.py --max-papers 2000 --email you@cornell.edu
 ```
 
-PowerShell equivalent for loading the env file:
-
-```powershell
-Get-Content .env.local | ForEach-Object {
-  if ($_ -match '^\s*([^#=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim('"')) }
-}
-```
+> The scripts read `.env.local` themselves, so there is nothing to source into your
+> shell. That step was the most error-prone part of this on Windows, so it was removed
+> rather than documented around.
 
 Verify first without writing anything:
 

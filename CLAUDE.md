@@ -672,6 +672,63 @@ That §4.8 called this "THE FINDING FROM ROUND 1" and registered it as the round
 is the point: it was the most confidently-held conclusion in the ledger, it was formed on an
 underpowered eval, and the first properly-powered look reversed it.
 
+#### The powered stratum answers the MedCPT question, and inverts it
+
+`claim`, dev, **n=2,887**, baseline `mrr` = 0.4950. This is the first properly-powered
+candidate test this loop has run.
+
+| metric | Δ medcpt | p | Δ openai_768 | p |
+|---|---|---|---|---|
+| **mrr** (gate) | **−0.0166** | **0.0034** | **+0.0093** | **0.0024** |
+| success@1 | **−0.0236** | **0.0026** | +0.0062 | 0.2288 |
+| success@5 | −0.0080 | 0.2875 | **+0.0107** | **0.0217** |
+| success@10 | −0.0038 | 0.6054 | **+0.0132** | **0.0042** |
+| success@20 | +0.0007 | 0.9504 | **+0.0132** | **0.0005** |
+| unjudged@10 | +0.0008 | — | −0.0015 | — |
+
+**MedCPT significantly regresses, and it regresses on a stratum its own hypothesis declared
+NULL.** The registered prediction (`hypothesis.py`) was "no material change on claim". The
+observed effect is −0.0166 on the gate metric at p=0.0034 and −0.0236 on success@1 at
+p=0.0026. A violated null prediction in the *negative* direction is the strongest form of
+refutation this framework produces, because it was written down before the run.
+
+The mechanism is consistent with MedCPT's own rationale, read honestly: it was trained on
+**short** PubMed click queries, and claim queries are **28-word sentences** — the far end of
+the distribution it was fitted to. The original argument said MedCPT should excel where
+queries are short; the symmetric consequence, which nobody wrote down, is that it should
+*suffer* where they are long. The hypothesis predicted an absence of effect there instead
+of a cost, and that was the error.
+
+**`openai_768` is PROMOTED — the first candidate this loop has ever promoted.** Four of five
+consensus metrics improve significantly, none regresses, and `unjudged@10` falls slightly so
+the gain is not a pooling artifact.
+
+#### What this means for the decision, which was the point of the exercise
+
+The control was added so a MedCPT win could not be confused with vector capacity. The
+measurement did something better than settle that: **capacity is the whole story, and the
+domain-trained model is worse.**
+
+| | MedCPT | openai_768 |
+|---|---|---|
+| powered stratum (claim) | **−0.0166, significant regression** | **+0.0093, promoted** |
+| underpowered stratum (concept) | +0.0198, p=0.56 | +0.0079, p=0.84 |
+| dimensions | 768 | 768 |
+| deployment | needs torch + transformers (~2 GB); **does not fit a Vercel function**; `chunks.embedding` is `vector(192)` so it needs a schema change and a hosted inference endpoint | same OpenAI call with `dimensions=768`; 4× storage; **servable today** |
+
+So the expensive change is measurably worse than the baseline on the only stratum with the
+power to judge it, and the cheap change is measurably better. ⚠️ `openai_768` is promoted on
+**dev**; it is not shipped until it clears the Pareto rule across every stratum and the
+locked `test` split is spent.
+
+**The transferable lesson is about where the two candidates were tested.** On concept —
+underpowered, MDE 0.066 — MedCPT looked like the better of the two (+0.0198 against
++0.0079), and a loop that stopped there would have concluded that domain training beats
+capacity and gone off to build a hosted MedCPT endpoint. The powered stratum reversed the
+*sign*, not merely the significance. **Ranking two candidates by point estimates on a
+stratum that cannot resolve either of them is not weak evidence; it is evidence pointed the
+wrong way.**
+
 ### 4.9 Environment facts learned the expensive way
 
 | Fact | Consequence |

@@ -267,6 +267,64 @@ def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
     }
 
 
+def get_document(index: LiveIndex, doc_id: str, *, highlight: str = "") -> dict | None:
+    """A whole paper, in reading order, with every passage's own offsets.
+
+    **Why the passages rather than a stored blob.** The passage rows ARE the article as
+    this system holds it: reference-stripped, chunked at offsets that retrieval already
+    cites. Rendering from them means the page a reader scrolls is exactly the text that was
+    searched, so a highlighted result cannot point at something the reader cannot find.
+    Serving a separate full-text copy would let the two drift.
+
+    ``ordinal`` is the chunk order within a section; ``ORDER BY section, ordinal`` puts the
+    article back together. ``start_char`` is kept on every passage so a deep link from a
+    search result can scroll to the exact clause.
+    """
+    conn = index.conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT doc_id, title, year, descriptors, meta
+               FROM documents WHERE doc_id = %s""", (doc_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        did, title, year, descriptors, meta = row
+
+        cur.execute(
+            """SELECT chunk_id, section, ordinal, start_char, end_char, text
+               FROM chunks WHERE doc_id = %s
+               ORDER BY section, ordinal""", (doc_id,))
+        passages = [
+            {"chunk_id": r[0], "section": r[1], "ordinal": r[2],
+             "start_char": r[3], "end_char": r[4], "text": r[5]}
+            for r in cur.fetchall()
+        ]
+
+    meta = meta if isinstance(meta, dict) else {}
+    mesh = [m for m in (meta.get("mesh") or []) if isinstance(m, dict)]
+    return {
+        "doc_id": did,
+        "title": title or "",
+        "year": year,
+        "pmid": meta.get("pmid") or (did or "").replace("PAPER:PMID", ""),
+        "pmcid": meta.get("pmcid"),
+        "journal": meta.get("journal") or "",
+        "license_code": meta.get("license_code"),
+        "full_text_chars": meta.get("full_text_chars"),
+        "blob_url": meta.get("blob_url"),
+        # Major topics first: NLM's own statement of what the paper is centrally about.
+        "mesh_major": [m["descriptor"] for m in mesh if m.get("major") and m.get("descriptor")],
+        "mesh_minor": [m["descriptor"] for m in mesh
+                       if not m.get("major") and m.get("descriptor")],
+        "descriptors": [d.replace("MESH:", "") for d in (descriptors or [])],
+        "grants": meta.get("grants") or [],
+        "n_passages": len(passages),
+        "passages": passages,
+        "highlight": highlight,
+        "source": "neon",
+    }
+
+
 _LIVE: LiveIndex | None = None
 
 

@@ -39,22 +39,38 @@ from oncolens.env import load_env  # noqa: E402
 from oncolens.sources import pubmed  # noqa: E402
 
 #: MeSH branch ROOTS, not leaf terms. PubMed explodes each into its full subtree, so this
-#: short list covers the whole of oncology as NLM defines it:
+#: short list covers the whole of oncology as NLM defines it.
 #:
-#:   Neoplasms                C04 — every cancer type, ~700 descriptors
-#:   Antineoplastic Agents    D27 — the drug classes
-#:   Medical Oncology         H02 — the discipline itself
-#:   Carcinogenesis           G04 — mechanism papers that predate a tumour
-#:   Oncogenes                G05 — the genetics
+#: **Explosion verified, not assumed** (2026-08-02): 8/8 papers indexed under the child
+#: descriptor ``Carcinoma, Non-Small-Cell Lung`` and NOT under ``Neoplasms`` itself still
+#: matched ``"Neoplasms"[MeSH Terms]``. Without that, this would be a five-term keyword
+#: match wearing a tree's clothes.
 #:
-#: Adding a branch here is a deliberate widening of scope and should be measured, not
-#: assumed: run with --report to see what each one admits.
+#:   Neoplasms                C04, every cancer type, ~700 descriptors
+#:   Antineoplastic Agents    D27, the drug classes
+#:   Medical Oncology         H02, the discipline itself
+#:   Carcinogenesis           G04, mechanism papers that predate a tumour
+#:   Oncogenes                G05, the genetics
+#:
+#: ⚠️ **The first five were not enough, and the gap was immuno-oncology.** Sampling the
+#: rejected fraction turned up papers that are unambiguously on-subject and carry no C04
+#: descriptor at all: CAR-T antigen-recognition work indexed only as ``Antigens, Neoplasm``
+#: + ``Immunotherapy, Adoptive``, and CAR-T neurotoxicity indexed as ``Receptors, Chimeric
+#: Antigen``. Those terms live in D23 and E02, outside every branch named above, so the
+#: gate was discarding the single largest research area in this corpus.
+#:
+#: The three additions are deliberately narrow. ``Immunotherapy`` on its own would admit
+#: most of general immunology; adoptive transfer, tumour antigens and CARs are oncology by
+#: construction.
 ONCOLOGY_BRANCHES = (
     '"Neoplasms"[MeSH Terms]',
     '"Antineoplastic Agents"[MeSH Terms]',
     '"Medical Oncology"[MeSH Terms]',
     '"Carcinogenesis"[MeSH Terms]',
     '"Oncogenes"[MeSH Terms]',
+    '"Immunotherapy, Adoptive"[MeSH Terms]',
+    '"Antigens, Neoplasm"[MeSH Terms]',
+    '"Receptors, Chimeric Antigen"[MeSH Terms]',
 )
 
 ONCOLOGY_CLAUSE = "(" + " OR ".join(ONCOLOGY_BRANCHES) + ")"

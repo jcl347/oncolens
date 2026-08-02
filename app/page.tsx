@@ -3,7 +3,7 @@ import path from "node:path";
 import OverviewClient from "./OverviewClient";
 
 export const metadata = {
-  title: "OncoLens: passage-grounded oncology literature retrieval",
+  title: "OncoLens: a RAG system over the oncology literature",
   description:
     "Search oncology papers by concept, get the exact passage, and compare papers on "
     + "the same technical dimensions. Every published number has a command that produces it.",

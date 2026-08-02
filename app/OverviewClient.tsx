@@ -34,6 +34,53 @@ function fmt(v: number | string) {
   return String(v);
 }
 
+/**
+ * A headline figure that lights up under the pointer.
+ *
+ * The accent is behind the number rather than around it, and it eases rather than snaps,
+ * so a row of these reads as instrumentation coming alive rather than as a hover state
+ * firing. The `command` that produced the figure is exposed on hover too: the point of
+ * animating a number is to invite scrutiny of it, so the invitation had better lead
+ * somewhere.
+ */
+function LiveMetric({ m }: { m: Metric }) {
+  const [hover, setHover] = useState(false);
+  const p = PROVENANCE[m.provenance];
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      className="group relative"
+    >
+      <dt className="text-[11px] uppercase tracking-wider text-slate-500">{m.label}</dt>
+      <dd className="relative mt-1 overflow-hidden rounded">
+        <WebGLAccent
+          variant="glow"
+          hover={hover}
+          className="absolute inset-0 h-full w-full"
+        />
+        <span className="relative font-mono text-xl tabular-nums text-white">
+          {fmt(m.value)}
+          {m.unit ? <span className="ml-0.5 text-sm text-slate-400">{m.unit}</span> : null}
+        </span>
+      </dd>
+      <WebGLAccent variant="rule" hover={hover} className="mt-1 h-[2px] w-full" />
+      {p ? (
+        <span className={`mt-1.5 inline-block rounded border px-1 py-px text-[9px] uppercase tracking-wider ${p.cls}`}
+              title={p.title}>
+          {p.label}
+        </span>
+      ) : null}
+      {m.command ? (
+        <code className="mt-1 block truncate font-mono text-[9px] text-slate-600 opacity-0 transition-opacity group-hover:opacity-100"
+              title={m.command}>
+          {m.command}
+        </code>
+      ) : null}
+    </div>
+  );
+}
+
 /** Section heading with a live hairline under it, so each section reads as one unit. */
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -175,7 +222,7 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
         {/* ---------- what this is ---------- */}
         <header className="border-b border-white/8 py-16">
           <h1 className="text-3xl font-medium leading-tight text-white sm:text-4xl">
-            Passage-grounded retrieval over the oncology literature
+            A RAG system over the oncology literature
           </h1>
           <p className="mt-5 max-w-2xl text-[15px] leading-relaxed text-slate-400">
             Search by concept and get back the paper <em className="not-italic text-slate-200">
@@ -187,10 +234,7 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
           {corpus?.metrics?.length ? (
             <dl className="mt-10 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-4">
               {corpus.metrics.map((m) => (
-                <div key={m.label}>
-                  <dt className="text-[11px] uppercase tracking-wider text-slate-500">{m.label}</dt>
-                  <dd className="mt-1 font-mono text-xl tabular-nums text-white">{fmt(m.value)}</dd>
-                </div>
+                <LiveMetric key={m.label} m={m} />
               ))}
             </dl>
           ) : null}
@@ -222,8 +266,10 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
                 The set was grown along its own citation graph. Starting from MeSH-seeded
                 oncology searches, the papers those papers cite were ingested too, screened
                 against NLM&apos;s MeSH tree so the corpus stays oncology rather than
-                drifting into general molecular biology. Roughly 40% of the most-cited
-                candidates were rejected on exactly that test.
+                drifting into general molecular biology. About a third of the most-cited
+                candidates fail that screen: they are cited by oncology work without being
+                oncology work, and a further 6% are rejected only because PubMed has never
+                MeSH-indexed them at all.
               </p>
               <p>
                 Below, each point is one paper, positioned by the same embedding retrieval

@@ -90,10 +90,42 @@ export default function Page() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runHover, setRunHover] = useState(false);
+  /** Set when a query arrives from the URL, cleared once it has been dispatched. */
+  const [pending, setPending] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/evaluate").then((r) => r.json()).then(setEvalReport).catch(() => {});
   }, []);
+
+  /**
+   * Accept `?q=` and `?mode=` from the URL and run immediately.
+   *
+   * Without this every link from the Overview landed on an empty search box: the page
+   * advertised "try it" against a specific query, navigated, and then asked the reader to
+   * type it themselves. The links were not broken, the receiving end simply ignored them.
+   *
+   * Read from `window.location` rather than `useSearchParams` so the component does not
+   * need a Suspense boundary, which is what that hook forces on a statically rendered
+   * route.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    if (!q) return;
+    const m = params.get("mode");
+    if (m === "compare" || m === "search") setMode(m);
+    setQuery(q);
+    setPending(q);
+  }, []);
+
+  // Run once state has actually landed; calling run() straight from the effect above
+  // would close over the empty initial query.
+  useEffect(() => {
+    if (pending === null) return;
+    setPending(null);
+    void run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending]);
 
   const run = useCallback(async () => {
     if (!query.trim()) return;
@@ -275,8 +307,16 @@ function ResultCard({ rank, result, onOpen }: { rank: number; result: Result; on
           {clause?.end ?? result.passage.end_char}
         </span>
         <button onClick={onOpen} className="text-teal hover:underline">
-          open in paper →
+          quick look
         </button>
+        {/* Deep link: the reading page scrolls to this passage rather than the top. */}
+        <a
+          href={`/paper?id=${encodeURIComponent(result.doc_id)}&highlight=${encodeURIComponent(
+            (clause?.text ?? result.passage.text).slice(0, 200))}`}
+          className="text-teal hover:underline"
+        >
+          read the paper →
+        </a>
       </div>
     </article>
   );
@@ -398,11 +438,19 @@ function CellViewer({
           {cell.text}
         </div>
 
-        <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-          This is the passage the cell was filled from, verbatim, at the character offsets
-          above. The cell is a claim about this paper only if this passage supports it,
-          which is the point of showing it rather than a summary.
-        </p>
+        <div className="mt-3 flex items-center justify-between gap-4">
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            The passage the cell was filled from, verbatim, at the offsets above. The cell
+            is a claim about this paper only if this passage supports it.
+          </p>
+          <a
+            href={`/paper?id=${encodeURIComponent(docId)}&highlight=${encodeURIComponent(
+              (cell.text || "").slice(0, 200))}`}
+            className="shrink-0 rounded border border-teal/30 px-2.5 py-1 text-[11px] text-teal transition-colors hover:bg-teal/10"
+          >
+            read the paper →
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -448,9 +496,12 @@ function ComparisonGrid({ data }: { data: Comparison }) {
                 {/* The TITLE is what a researcher recognises a paper by. The doc_id is an
                     internal key and was previously all this column showed. */}
                 <td className="w-[22rem] p-2 pr-4">
-                  <span className="block text-[13px] font-medium leading-snug text-slate-100">
+                  <a
+                    href={`/paper?id=${encodeURIComponent(doc)}`}
+                    className="block text-[13px] font-medium leading-snug text-slate-100 transition-colors hover:text-teal"
+                  >
                     {data.titles?.[doc] || doc}
-                  </span>
+                  </a>
                   <span className="mt-1 block text-[10px] text-slate-500">
                     {data.years?.[doc] ?? "n/a"} ·{" "}
                     <a

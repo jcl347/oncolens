@@ -361,7 +361,19 @@ export default function ClusterMap({ data }: { data: Data }) {
           </span>
         </div>
 
+        {/* The axes are the first question a careful reader asks, and a scatter plot that
+            does not answer it invites them to invent meanings for the directions. */}
         <p className="mt-3 text-xs leading-relaxed text-slate-500">
+          <span className="text-slate-400">The axes are not labelled because they have no
+          individual meaning.</span>{" "}
+          {useDisc
+            ? "They are the three directions in which the 14 cluster centres are furthest apart, each one a weighted blend of all "
+            : "They are the three directions along which papers differ most, each one a weighted blend of all "}
+          {v?.source_dim ?? 192} embedding dimensions. No axis is “immunotherapy” or
+          “year”. Only relative distance carries information, which is why the regions are
+          named and the axes are not.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-slate-500">
           {data.n_documents.toLocaleString()} papers positioned by their retrieval
           embeddings, {data.k} clusters labelled by the MeSH major topics most distinctive
           to each.{" "}
@@ -403,8 +415,11 @@ export default function ClusterMap({ data }: { data: Data }) {
             <ul className="mt-4 space-y-2">
               {activeCluster.papers.map((p) => (
                 <li key={p.doc_id}>
+                  {/* Opens the paper itself. This used to run a keyword search for the
+                      title, which could return a list not even containing the paper the
+                      reader clicked. */}
                   <a
-                    href={`/search?q=${encodeURIComponent(p.title.slice(0, 80))}`}
+                    href={`/paper?id=${encodeURIComponent(p.doc_id)}`}
                     className="block rounded border border-white/8 bg-white/[0.02] p-2.5 transition-colors hover:border-white/20 hover:bg-white/[0.05]"
                   >
                     <span className="block text-xs leading-snug text-slate-200">{p.title}</span>

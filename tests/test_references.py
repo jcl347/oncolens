@@ -99,11 +99,30 @@ def test_standalone_filter_does_not_delete_prose():
     assert is_reference_like(ACS_STYLE)
 
 
-def test_max_share_guard_refuses_to_delete_the_article():
+def test_a_real_body_always_survives():
+    """The share guard is tiered, so the invariant is absolute, not proportional.
+
+    A *review* article legitimately is mostly bibliography — PMC10958066 carries a single
+    480,996-character reference list that is 80.6% of the document — so capping removal at
+    a fixed 60% left 215 bibliography passages of that one article in the index. High share
+    is now permitted when the evidence is unambiguous; what is never permitted is reducing
+    a document to nothing.
+    """
+    from oncolens.retrieval.references import MIN_BODY_CHARS
+
     paragraphs = [PROSE] + [ACS_STYLE] * 12
     idx = find_reference_start(paragraphs)
-    assert idx is None or sum(len(p) for p in paragraphs[idx:]) / sum(
-        len(p) for p in paragraphs) <= 0.60
+    if idx is not None:
+        kept = sum(len(p) for p in paragraphs[:idx])
+        assert kept >= MIN_BODY_CHARS, f"only {kept} chars of body survived"
+
+
+def test_review_shaped_document_is_stripped_despite_huge_share():
+    """The failure class the 60-article labelled set did not contain."""
+    body = [PROSE] * 4                      # ~2.5k chars of real article
+    refs = [ACS_STYLE * 12]                 # one enormous bibliography block
+    idx = find_reference_start(body + refs)
+    assert idx == 4, f"review-shaped bibliography must be found, got {idx}"
 
 
 # --- citation labels ---------------------------------------------------------

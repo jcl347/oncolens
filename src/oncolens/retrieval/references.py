@@ -148,10 +148,29 @@ ABSORB_THRESHOLD = 0.35
 #: Short paragraphs carry too little text to score reliably ("Supplementary Material",
 #: "Conflicts of interest"), so they are absorbed on the suffix's evidence, not their own.
 SHORT_PARA_CHARS = 320
-#: MEASURED: the largest true bibliography in the labelled set is 42.4% of characters.
-#: Refusing to cut more than 60% is a safety rail against a pathological document, not a
-#: tuned parameter — it should never bind on real input.
+#: Share guards. The first version used a single 60% cap, justified by the largest true
+#: bibliography in the 60-article labelled set being 42.4%, and asserted it "should never
+#: bind on real input". **It bound on 180 documents of 1,739.**
+#:
+#: The labelled set was all primary research papers. A *review* article inverts the ratio:
+#: "TGF-beta signaling in health, disease, and therapeutics" (PMC10958066) carries a single
+#: 480,996-character bibliography that is **80.6% of the document**, and the 60% rail broke
+#: the search on its first iteration — leaving 215 bibliography passages in the index.
+#:
+#: So share alone is the wrong evidence. A review legitimately *is* mostly references. What
+#: must never happen is deleting a document down to nothing, which is an absolute question,
+#: not a proportional one. The guard is therefore tiered: an ordinary share needs only
+#: ordinary evidence, while an extreme share demands unambiguous evidence, and in both cases
+#: a real body must survive.
 MAX_SHARE = 0.60
+#: Permitted when the suffix is unambiguously a bibliography. Not 1.0: a document that is
+#: *entirely* reference-shaped is more likely a parsing failure than an article.
+MAX_SHARE_CONFIDENT = 0.92
+#: "Unambiguous" — well above BLOCK_THRESHOLD. Measured: the PMC10958066 bibliography scores
+#: 0.779; the highest-scoring true *body* block in the labelled set is far below this.
+CONFIDENT_DENSITY = 0.70
+#: Whatever the ratios say, never reduce an article below this many characters of body.
+MIN_BODY_CHARS = 1500
 
 #: Legacy names kept so existing imports and tests continue to resolve.
 PARA_THRESHOLD = BLOCK_THRESHOLD
@@ -198,7 +217,9 @@ def find_reference_start(paragraphs: list[str]) -> int | None:
     for i in range(len(paragraphs) - 1, limit - 1, -1):
         para = paragraphs[i]
         suffix_chars += len(para)
-        if suffix_chars / total_chars > MAX_SHARE:
+        share = suffix_chars / total_chars
+        # Extending further back can only increase the share, so this is a true stop.
+        if share > MAX_SHARE_CONFIDENT:
             break
 
         d_para = reference_density(para)
@@ -212,17 +233,31 @@ def find_reference_start(paragraphs: list[str]) -> int | None:
         else:
             misses = 0
 
-        suffix = "\n\n".join(paragraphs[i:])
-        if reference_density(suffix) >= BLOCK_THRESHOLD and d_para >= ABSORB_THRESHOLD:
-            best = i
+        if d_para < ABSORB_THRESHOLD:
+            continue
+        d_suffix = reference_density("\n\n".join(paragraphs[i:]))
+        if d_suffix < BLOCK_THRESHOLD:
+            continue
+        if not _share_allowed(share, d_suffix, total_chars - suffix_chars):
+            continue
+        best = i
 
-    if best is None:
-        return None
-    # Guard: the surviving body must still be the majority of the article.
-    dropped = sum(len(p) for p in paragraphs[best:])
-    if dropped / total_chars > MAX_SHARE:
-        return None
     return best
+
+
+def _share_allowed(share: float, density: float, body_chars: int) -> bool:
+    """May a suffix of this size be removed, given how sure we are that it is references?
+
+    An ordinary bibliography (under ``MAX_SHARE``) needs only ordinary evidence. Removing
+    most of a document requires evidence that leaves no real doubt, because that is where a
+    detector error would be catastrophic rather than merely costly. In every case some real
+    body must remain — a document reduced to nothing is a bug however confident the score.
+    """
+    if body_chars < MIN_BODY_CHARS:
+        return False
+    if share <= MAX_SHARE:
+        return True
+    return density >= CONFIDENT_DENSITY and share <= MAX_SHARE_CONFIDENT
 
 
 @dataclass

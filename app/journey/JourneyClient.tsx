@@ -29,6 +29,7 @@ type Stage = {
   guards?: Guard[];
   systems?: SystemRow[];
   caveat?: string | null;
+  headline?: string | null;
 };
 
 type Journey = {
@@ -334,6 +335,12 @@ export default function JourneyClient({ data }: { data: Journey }) {
             ) : null}
 
             {s.systems?.length ? <SystemTable systems={s.systems} /> : null}
+
+            {s.headline ? (
+              <p className="mt-6 border-l-2 border-cyan-400/50 bg-cyan-400/[0.05] py-3 pl-4 pr-4 text-sm leading-relaxed text-cyan-100/80">
+                {s.headline}
+              </p>
+            ) : null}
 
             {s.caveat ? (
               <p className="mt-8 border-l-2 border-amber-400/40 bg-amber-400/[0.04] py-3 pl-4 pr-4 text-sm leading-relaxed text-amber-200/70">

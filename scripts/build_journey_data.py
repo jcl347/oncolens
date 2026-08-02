@@ -288,9 +288,22 @@ def build(now_iso: str) -> dict:
             metric("Queries evaluated", bench.get("n_queries", n_queries),
                    provenance="artifact", command="scripts/bench_retrieval.py"),
         ],
-        "caveat": None if sys_rows else
-        "Benchmark has not been run against this index yet — no numbers are shown rather "
-        "than stale ones.",
+        # The unjudged caveat must travel WITH the numbers. Shown separately — or in a doc
+        # — it stops being a qualification and becomes a footnote nobody reads, while the
+        # table it qualifies looks like a clean result.
+        "caveat":
+            "unjudged@10 is about 0.94 for every system: roughly 94% of returned documents "
+            "were never judged, at 1.10 judged documents per query. These are LOWER BOUNDS, "
+            "not estimates of retrieval quality — the promotion gate blocks anything above "
+            "0.35 unjudged, and it is right to. The comparison between systems holds because "
+            "the unjudged rate is nearly identical across them; no single number here should "
+            "be quoted as 'the' retrieval quality. bpref is absent by design: it returns None "
+            "below 10 judged negatives rather than averaging noise into a consensus."
+            if sys_rows else
+            "The benchmark has not been run against this index. No numbers are shown, "
+            "rather than stale ones.",
+        "headline": ("Deleting a component was the second-largest win available: BM25 alone "
+                     "beat the lexical+LSA hybrid that shipped, p < 0.0001.") if sys_rows else None,
     })
 
     # ------------------------------------------------------------ 8. storage

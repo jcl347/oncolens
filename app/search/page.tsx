@@ -32,6 +32,8 @@ type Aspect = { key: string; label: string; numeric: boolean };
 type Cell = {
   reported: boolean; chunk_id?: string; section?: string;
   start_char?: number; end_char?: number; text?: string | null; score?: number;
+  /** Why an unfilled cell is unfilled: no cue word present, or a near miss on threshold. */
+  reason?: "no_cue_match" | "below_threshold"; threshold?: number;
 };
 type Comparison = {
   query: string; aspects: Aspect[]; doc_ids: string[];
@@ -174,6 +176,17 @@ export default function Page() {
       } else {
         setComparison(data);
       }
+      // WRITE THE SEARCH TO THE URL. The read side already accepted ?q= and ?mode=, so
+      // inbound links worked and outbound ones did not exist: a search could not be
+      // bookmarked, shared, or survive a refresh, and the core loop (open result 3, come
+      // back, open result 4) cost a retyped and re-run query every time. replaceState
+      // rather than pushState so refining a query does not bury the previous page under
+      // a dozen history entries; the back button should leave the search, not step
+      // through its drafts.
+      try {
+        const qs = `?q=${encodeURIComponent(query)}${forMode === "compare" ? "&mode=compare" : ""}`;
+        window.history.replaceState(null, "", `/search${qs}`);
+      } catch { /* history is unavailable in some embedded contexts; not worth failing */ }
     } catch (e: any) {
       if (mine !== seqRef.current) return;
       setError(e.message || "request failed");
@@ -398,7 +411,8 @@ function ResultCard({ rank, result, onOpen }: { rank: number; result: Result; on
         {/* Deep link: the reading page scrolls to this passage rather than the top. */}
         <a
           href={`/paper?id=${encodeURIComponent(result.doc_id)}&highlight=${encodeURIComponent(
-            (clause?.text ?? result.passage.text).slice(0, 200))}`}
+            (clause?.text ?? result.passage.text).slice(0, 200))}&from=${encodeURIComponent(
+            typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "")}`}
           className="text-teal hover:underline"
         >
           read the paper →
@@ -550,8 +564,13 @@ function CellViewer({
 
         <div className="mt-3 flex items-center justify-between gap-4">
           <p className="text-[11px] leading-relaxed text-slate-500">
-            The passage the cell was filled from, verbatim, at the offsets above. The cell
-            is a claim about this paper only if this passage supports it.
+            The passage the cell was filled from, verbatim, at the offsets above. It was
+            selected because it matched this dimension&apos;s cue vocabulary
+            {cell.score != null && (
+              <> (retrieval score <span className="font-mono text-slate-400">{cell.score}</span>)</>
+            )}
+            , which is not the same as the paper answering the question. The cell is a
+            claim about this paper only if this passage supports it.
           </p>
           <a
             href={`/paper?id=${encodeURIComponent(docId)}&highlight=${encodeURIComponent(
@@ -649,9 +668,28 @@ function ComparisonGrid({ data }: { data: Comparison }) {
                           </span>
                         </button>
                       ) : (
-                        // Distinct from an empty cell on purpose: "not reported" is not
-                        // the same claim as "no effect".
-                        <span className="block p-1.5 italic text-slate-600">not reported</span>
+                        // "no passage matched" is a fact about THIS SEARCH. "not reported"
+                        // was a claim about the paper that the mechanism cannot support:
+                        // a cell fills when some chunk clears ts_rank_cd >= 0.08 against
+                        // an OR of cue words, so an empty one can be different wording or
+                        // a 0.079. Contrast raised from slate-600 (about 2.5:1 here, which
+                        // read as a blank cell) to slate-400, because a cell that looks
+                        // empty invites exactly the "no effect" reading it should prevent.
+                        <span
+                          className="block p-1.5 text-[11px] italic leading-snug text-slate-400"
+                          title={
+                            cell?.reason === "below_threshold"
+                              ? `A passage matched but scored ${cell.score} against a ${cell.threshold} threshold: a near miss, not an absence.`
+                              : "No passage in this paper contains this dimension's cue words. The paper may still report it in other wording."
+                          }
+                        >
+                          no passage matched
+                          {cell?.reason === "below_threshold" && (
+                            <span className="mt-0.5 block font-mono text-[10px] not-italic text-amber-300/60">
+                              near miss {cell.score}
+                            </span>
+                          )}
+                        </span>
                       )}
                     </td>
                   );

@@ -284,7 +284,19 @@ def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
                 row = found.get(doc)
                 key = f"{doc}|{asp.key}"
                 if row is None or float(row[6]) < CELL_MIN_SCORE:
-                    cells[key] = {"reported": False, "text": None}
+                    # SAY WHICH KIND OF EMPTY THIS IS. "No chunk in this paper contains
+                    # any of the aspect's cue words" and "a chunk matched but scored
+                    # 0.079 against a 0.08 threshold" are different facts, and neither is
+                    # "the paper does not report this dimension". Emitting the near-miss
+                    # score lets the reader see how close the call was instead of
+                    # inheriting a verdict.
+                    cells[key] = {
+                        "reported": False,
+                        "text": None,
+                        "reason": "no_cue_match" if row is None else "below_threshold",
+                        "score": None if row is None else round(float(row[6]), 4),
+                        "threshold": CELL_MIN_SCORE,
+                    }
                     continue
                 filled += 1
                 # SEND THE PASSAGE WHOLE. It used to be clipped to 700 characters while
@@ -314,9 +326,21 @@ def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
         "coverage": round(filled / total, 4) if total else 0.0,
         "cells": cells,
         "source": "neon",
+        # WHAT AN EMPTY CELL ACTUALLY MEANS, stated as the retrieval fact it is.
+        #
+        # This used to read "the paper does not report that dimension", which the
+        # mechanism cannot support: a cell is filled when some chunk clears
+        # ts_rank_cd >= 0.08 against an OR of the aspect's cue words, with numeric aspects
+        # needing only a digit somewhere in the chunk. So an empty cell can be a paper
+        # that used different wording, or one that scored 0.079. A researcher assembling a
+        # review table writes "not reported" down as a finding about the paper, and that
+        # is the tool putting a claim in their notes that it never established.
         "notes": [
-            "A cell marked NOT REPORTED means the paper does not report that dimension — "
-            "not that the effect was absent.",
+            "An empty cell means no passage in that paper matched this dimension's cue "
+            "vocabulary above the retrieval threshold. That is a statement about this "
+            "search, not about the paper: the authors may have reported the dimension in "
+            "wording the cue list does not cover. Open a filled cell to check the passage "
+            "before recording anything from this table.",
         ],
     }
 

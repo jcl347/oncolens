@@ -38,6 +38,7 @@ export default function PaperPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [highlight, setHighlight] = useState("");
+  const [backTo, setBackTo] = useState<{ href: string; query: string } | null>(null);
   const hitRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -45,6 +46,15 @@ export default function PaperPage() {
     const id = params.get("id");
     const hl = params.get("highlight") || "";
     setHighlight(hl);
+    // Carry the originating search so this page is a round trip rather than a dead end.
+    // Its only exit used to be "back to the corpus" -> /, which is not where the reader
+    // came from, and the nav's Search link lands on an empty box: checking one result and
+    // returning for the next cost a retyped query every time.
+    const from = params.get("from");
+    if (from) {
+      const q = new URLSearchParams(from).get("q");
+      setBackTo({ href: `/search?${from}`, query: q || "" });
+    }
     if (!id) { setError("No paper specified."); setLoading(false); return; }
     fetch(`/api/paper?id=${encodeURIComponent(id)}&highlight=${encodeURIComponent(hl)}`)
       .then(async (r) => {
@@ -109,7 +119,14 @@ export default function PaperPage() {
       <WebGLBackground intensity={0.4} parallax />
 
       <div className="relative mx-auto max-w-3xl px-6 py-14">
-        <a href="/" className="text-xs text-teal hover:underline">← back to the corpus</a>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+          {backTo ? (
+            <a href={backTo.href} className="text-teal hover:underline">
+              ← back to results{backTo.query && <> for &ldquo;{backTo.query}&rdquo;</>}
+            </a>
+          ) : null}
+          <a href="/" className="text-slate-500 hover:text-slate-300">the corpus</a>
+        </div>
 
         {loading && <p className="mt-8 text-sm text-slate-500">Loading the paper…</p>}
 

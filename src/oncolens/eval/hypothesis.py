@@ -171,6 +171,15 @@ HYPOTHESES: dict[str, Hypothesis] = {
                   "text has least advantage exactly there.",
         null_strata=("claim",),
     ),
+    "openai_768": Hypothesis(
+        candidate="openai_768", stratum="concept", metric="success@5",
+        direction="up", min_effect=0.02,
+        mechanism="Capacity control for MedCPT. If simply widening the SAME model to 768 "
+                  "dimensions recovers most of any MedCPT gain, then the gain is capacity "
+                  "rather than domain training, and the cheap servable change wins. If it "
+                  "does not, the domain-training claim survives a real test.",
+        null_strata=(),
+    ),
     "rerank_llm": Hypothesis(
         candidate="rerank_llm", stratum="concept", metric="success@5",
         direction="up", min_effect=0.02,

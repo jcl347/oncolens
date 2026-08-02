@@ -135,6 +135,15 @@ CANDIDATES: list[Candidate] = [
                   "without a hosted endpoint and a schema change",
     ),
     Candidate(
+        "openai_768", "same OpenAI model at 768 dimensions",
+        "CONTROL, not a proposal. MedCPT is 768-dim against a 192-dim OpenAI index, so a "
+        "MedCPT win would confound domain training with vector capacity. This isolates "
+        "capacity: if openai_768 captures most of the MedCPT gain, the story is dimensions, "
+        "not PubMed click logs — and the cheap change is the right one.",
+        {"dense_backend": "openai-768"},
+        cost_note="4x vector storage; still servable, unlike MedCPT",
+    ),
+    Candidate(
         "rerank_llm", "LLM cross-encoder rerank of the top 24 passages",
         "A bi-encoder cannot judge whether a passage *reports* the queried finding or "
         "merely mentions it. That distinction is the whole difference between useful "

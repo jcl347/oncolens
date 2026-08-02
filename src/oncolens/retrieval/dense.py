@@ -403,6 +403,12 @@ def make_backend(name: str, *, dim: int = 192) -> EmbeddingBackend:
         return OpenAIBackend("text-embedding-3-small", dimensions=dim)
     if n == "openai-large":
         return OpenAIBackend("text-embedding-3-large", dimensions=dim)
+    if n == "openai-768":
+        # CONTROL for the MedCPT comparison. MedCPT is 768-dim against our 192-dim
+        # OpenAI index, so a MedCPT win would confound "trained on biomedical click
+        # logs" with "four times the vector capacity". Matching the width isolates the
+        # variable that the hypothesis is actually about.
+        return OpenAIBackend("text-embedding-3-small", dimensions=768)
     if n == "voyage":
         return VoyageBackend()
     if n == "medcpt":

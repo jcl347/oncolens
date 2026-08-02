@@ -335,6 +335,8 @@ function PaperViewer({ result, onClose }: { result: Result; onClose: () => void 
   const { passage } = result;
   const clause = passage.best_clause;
   const rel = clause ? { s: clause.start - passage.start_char, e: clause.end - passage.start_char } : null;
+  // meta.pmid is authoritative; fall back to the doc_id, which encodes it.
+  const pmid = result.meta?.pmid || result.doc_id.replace(/^PAPER:PMID/, "");
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/80 p-6 backdrop-blur-sm" onClick={onClose}>
@@ -345,13 +347,35 @@ function PaperViewer({ result, onClose }: { result: Result; onClose: () => void 
         <div className="flex items-start gap-4">
           <div className="flex-1">
             <h2 className="text-lg font-medium leading-snug text-white">{result.title}</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              {result.doc_id} · {passage.section}
+            {/* Was printing the raw internal doc_id ("PAPER:PMID39198425"), which is not
+                an identifier a researcher can act on. The PMID is the one they recognise,
+                so it links out to PubMed, and the internal reading view is one click away
+                rather than something to reconstruct by hand. */}
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+              {pmid && (
+                <a
+                  href={`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`}
+                  target="_blank" rel="noreferrer"
+                  className="font-mono text-teal hover:underline"
+                >
+                  PMID {pmid}
+                </a>
+              )}
+              <span>·</span>
+              <span>{passage.section}</span>
+              <span>·</span>
+              <a
+                href={`/paper?id=${encodeURIComponent(result.doc_id)}&highlight=${encodeURIComponent(
+                  (clause?.text ?? passage.text).slice(0, 200))}`}
+                className="text-teal hover:underline"
+              >
+                read the paper
+              </a>
               {result.meta?.blob_url && (
                 <>
-                  {" · "}
+                  <span>·</span>
                   <a href={result.meta.blob_url} target="_blank" rel="noreferrer" className="text-teal hover:underline">
-                    full text
+                    source text
                   </a>
                 </>
               )}

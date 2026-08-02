@@ -87,12 +87,28 @@ class LiveIndex:
             conn, query, vec, candidates=candidates, top_k=top_k,
             bm25_weight=bm25_weight, dense_weight=dense_weight,
         )
-        return {
+        results = [_shape(r, query) for r in rows]
+        # SAY SO WHEN THE WORDS WERE NEVER FOUND. The dense arm has no relevance
+        # threshold, so it always returns its nearest neighbours and this endpoint can
+        # never come back empty. Without this flag a misspelling returns ten confident
+        # results and the reader concludes the corpus holds work on a term it has never
+        # seen. Absence of evidence has to be reported as absence, not as ten hits.
+        any_lexical = any(r.get("matched_by") != "semantic" for r in results)
+        out = {
             "query": query,
             "backend": self.backend_name,
             "source": "neon",
-            "results": [_shape(r, query) for r in rows],
+            "lexical_match": any_lexical,
+            "results": results,
         }
+        if results and not any_lexical:
+            out["notes"] = [
+                "No passage in this corpus contains your search terms. These results are "
+                "the nearest matches by meaning, which may be useful, but nothing below "
+                "is a literal hit. Check the spelling, or treat these as leads rather "
+                "than as evidence the corpus covers this term."
+            ]
+        return out
 
 
 def _shape(row: dict, query: str) -> dict:
@@ -144,6 +160,14 @@ def _shape(row: dict, query: str) -> dict:
         # has no meta at all.
         "meta": {**meta, "pmid": meta.get("pmid") or pmid},
         "score": round(float(row.get("score") or 0.0), 6),
+        # Which arm retrieved this. `lexical` means the query's words are literally in the
+        # passage; `semantic` means only the embedding matched, which is the honest label
+        # for a result the reader might otherwise take as a term hit.
+        "matched_by": (
+            "lexical+semantic" if row.get("lex_rank") is not None and row.get("dense_rank") is not None
+            else "lexical" if row.get("lex_rank") is not None
+            else "semantic"
+        ),
         "passage": {
             "chunk_id": p.get("chunk_id"),
             "section": p.get("section"),

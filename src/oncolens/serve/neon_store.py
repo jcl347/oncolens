@@ -211,20 +211,35 @@ dense AS (
 fused AS (
     -- Reciprocal Rank Fusion. Operates on ranks, so the unbounded ts_rank_cd scale and
     -- the [0,2] cosine-distance scale never have to be reconciled.
-    SELECT chunk_id, doc_id, SUM(w) AS score FROM (
-        SELECT chunk_id, doc_id, $5::float / ($4 + rank) AS w FROM lexical
+    --
+    -- WHICH ARM FOUND IT IS CARRIED THROUGH, and it is not a diagnostic nicety. The
+    -- `lexical` CTE is gated on `tsv @@ plainto_tsquery`, so it returns nothing when the
+    -- query's words are absent from the corpus. The `dense` CTE has no WHERE and no
+    -- distance threshold: it ALWAYS returns its 200 nearest neighbours. So a misspelling
+    -- ("osimertnib") or a term this corpus has never seen still produces ten scored,
+    -- titled, offset-bearing results that look exactly like good ones, and a researcher
+    -- concludes the literature contains work it does not. Surfacing lex_rank lets the UI
+    -- say "no passage contains your terms; these are semantic neighbours" instead.
+    SELECT chunk_id, doc_id, SUM(w) AS score,
+           MIN(lex_rank)   AS lex_rank,
+           MIN(dense_rank) AS dense_rank
+    FROM (
+        SELECT chunk_id, doc_id, $5::float / ($4 + rank) AS w,
+               rank AS lex_rank, NULL::bigint AS dense_rank FROM lexical
         UNION ALL
-        SELECT chunk_id, doc_id, $6::float / ($4 + rank) AS w FROM dense
+        SELECT chunk_id, doc_id, $6::float / ($4 + rank) AS w,
+               NULL::bigint AS lex_rank, rank AS dense_rank FROM dense
     ) u
     GROUP BY chunk_id, doc_id
 ),
 best_per_doc AS (
     -- Collapse passages to documents, keeping the single best passage as the citation.
-    SELECT DISTINCT ON (doc_id) doc_id, chunk_id, score
+    SELECT DISTINCT ON (doc_id) doc_id, chunk_id, score, lex_rank, dense_rank
     FROM fused
     ORDER BY doc_id, score DESC
 )
-SELECT b.doc_id, b.score, d.title, d.doc_type, d.year, d.meta,
+SELECT b.doc_id, b.score, b.lex_rank, b.dense_rank,
+       d.title, d.doc_type, d.year, d.meta,
        c.chunk_id, c.section, c.start_char, c.end_char, c.text
 FROM best_per_doc b
 JOIN documents d ON d.doc_id = b.doc_id
@@ -371,6 +386,9 @@ def hybrid_search(
         out.append({
             "doc_id": d["doc_id"], "score": float(d["score"]), "title": d["title"],
             "doc_type": d["doc_type"], "year": d["year"], "meta": d["meta"],
+            # None means that arm did not retrieve this passage at all. lex_rank is None
+            # exactly when the query's words appear nowhere in it.
+            "lex_rank": d.get("lex_rank"), "dense_rank": d.get("dense_rank"),
             "passage": {
                 "chunk_id": d["chunk_id"], "section": d["section"],
                 "start_char": d["start_char"], "end_char": d["end_char"], "text": d["text"],

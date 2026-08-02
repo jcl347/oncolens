@@ -15,6 +15,8 @@ type Passage = {
 type Result = {
   doc_id: string; title: string; doc_type: string; year: number | null;
   meta: Record<string, any>; score: number; passage: Passage;
+  /** Which arm retrieved it. "semantic" means the query's words are NOT in the passage. */
+  matched_by?: "lexical+semantic" | "lexical" | "semantic";
 };
 /**
  * These mirror `oncolens.serve.live_query.compare` EXACTLY.
@@ -96,6 +98,8 @@ export default function Page() {
   const seqRef = useRef(0);
   /** The query the visible results actually answer, which can lag the input box. */
   const [ranQuery, setRanQuery] = useState("");
+  /** Server-side notes, e.g. "no passage contains your search terms". */
+  const [noLexical, setNoLexical] = useState<string[]>([]);
 
   useEffect(() => {
     fetch("/api/evaluate").then((r) => r.json()).then(setEvalReport).catch(() => {});
@@ -141,6 +145,7 @@ export default function Page() {
     const mine = ++seqRef.current;
     const forMode = mode;
     setLoading(true); setError(null); setComparison(null); setResults([]);
+    setNoLexical([]);
     setRanQuery(query);
     try {
       const url = forMode === "search"
@@ -163,8 +168,12 @@ export default function Page() {
         );
       }
       if (mine !== seqRef.current) return;   // a newer query superseded this one
-      if (forMode === "search") setResults(data.results || []);
-      else setComparison(data);
+      if (forMode === "search") {
+        setResults(data.results || []);
+        setNoLexical(data.lexical_match === false ? (data.notes || []) : []);
+      } else {
+        setComparison(data);
+      }
     } catch (e: any) {
       if (mine !== seqRef.current) return;
       setError(e.message || "request failed");
@@ -294,6 +303,14 @@ export default function Page() {
               {results.length} passages for{" "}
               <span className="text-slate-300">&ldquo;{ranQuery}&rdquo;</span>
             </p>
+            {/* The dense arm has no relevance threshold, so a query whose words appear
+                nowhere still returns ten ranked results. Saying nothing here lets a
+                misspelling read as coverage. */}
+            {noLexical.map((n, i) => (
+              <p key={i} className="rounded border border-amber-400/25 bg-amber-400/[0.04] px-3 py-2 text-xs leading-relaxed text-amber-200/80">
+                {n}
+              </p>
+            ))}
             {results.map((r, i) => (
               <ResultCard key={r.doc_id} rank={i + 1} result={r} onOpen={() => setOpenDoc(r)} />
             ))}
@@ -322,11 +339,27 @@ function ResultCard({ rank, result, onOpen }: { rank: number; result: Result; on
         <h3 className="flex-1 text-[17px] font-semibold leading-snug tracking-[-0.01em] text-white">
           {result.title}
         </h3>
+        {/* HOW it matched, not a bare score. The raw RRF sum spans about 0.008 to 0.033,
+            so adjacent ranks tie at three decimals and the badge said strictly less than
+            the rank printed beside it. Which arm found the passage is the thing a reader
+            can actually act on: "semantic" means their words are not in this text. */}
         <span
-          className="mt-0.5 shrink-0 rounded bg-teal/10 px-1.5 py-0.5 font-mono text-[10px] text-teal/80"
-          title="fusion score"
+          className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
+            result.matched_by === "semantic"
+              ? "bg-amber-400/10 text-amber-300/80"
+              : "bg-teal/10 text-teal/80"
+          }`}
+          title={
+            result.matched_by === "semantic"
+              ? "Your search terms do not appear in this passage. It was retrieved by meaning alone."
+              : result.matched_by === "lexical"
+                ? "Contains your search terms. The embedding did not rank it."
+                : "Contains your search terms and ranks highly by meaning."
+          }
         >
-          {result.score.toFixed(3)}
+          {result.matched_by === "semantic" ? "meaning only"
+            : result.matched_by === "lexical" ? "terms"
+            : "terms + meaning"}
         </span>
       </div>
 

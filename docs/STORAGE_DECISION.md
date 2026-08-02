@@ -50,6 +50,48 @@ retrieval quality for space and there is now a 2,225-query benchmark that can se
 | Drop `indexed_text`, regenerate `tsv` | −61 MB | `tsv` is a *generated column* from it, so this removes the title and section from the searchable text |
 | 192 → 128 dims (Matryoshka) | −37 MB | should cost little; "should" is not a measurement |
 
+### ⚠️ The capacity that matters is not the steady-state size
+
+Re-embedding the corpus — a single `UPDATE` of every row's vector — **failed** with
+
+```
+psycopg.errors.DiskFull: could not extend file because project size limit (512 MB)
+has been exceeded
+```
+
+at a steady-state size of 345 MB. Nothing was being added. Under MVCC an `UPDATE` writes a
+*new* row version and leaves the old one dead until vacuumed, so rewriting every row grows
+the table by roughly its own size, and the HNSW index bloated **66 MB → 115 MB** at the
+same time. Measured mid-failure: 40,000 dead tuples, database at 490 MB.
+
+**So the usable capacity for a corpus you intend to maintain is roughly half the quota**,
+not the quota. This is the single most important correction to the sizing table above, and
+it is invisible if you only measure a freshly-loaded database.
+
+The procedure that works, and why each step is there:
+
+```sql
+DROP INDEX chunks_embedding_idx;   -- 115 MB, and re-embedding invalidates it anyway
+VACUUM chunks;                     -- reclaim dead tuples IN PLACE
+--   ... bulk UPDATE via COPY into a staging table, vacuuming every few batches ...
+CREATE INDEX chunks_embedding_idx ON chunks USING hnsw (embedding vector_cosine_ops)
+  WITH (m = 16, ef_construction = 64);
+```
+
+* **Drop the vector index first.** Updating 59k vectors in an HNSW index costs far more
+  than rebuilding it, and the bloat is what pushes you over the limit.
+* **Plain `VACUUM`, not `VACUUM FULL`.** `FULL` rewrites the table and needs the headroom
+  you are trying not to consume; plain `VACUUM` makes dead space reusable in place. It
+  took 490 MB → 375 MB here purely by dropping the index and vacuuming.
+* **`COPY` into a staging table, not `executemany`.** 59,306 individual `UPDATE`s over a
+  serverless connection died with *"SSL connection has been closed unexpectedly"*.
+
+**This is a genuine mark against Postgres for this workload.** A dedicated vector store
+treats "replace all vectors" as a normal reindex; in Postgres it is a table rewrite with a
+transient 2× footprint. It does not overturn the decision — the relational requirement is
+still real and immediate — but it means the free tier supports roughly **1,300 maintainable
+papers**, not the 2,700 the steady-state arithmetic suggests.
+
 ### The free tier's ceiling arrived exactly where predicted
 
 The note below said the 0.5 GB free tier "holds ~2k papers, not 10k". Neon warned at 89%

@@ -104,7 +104,11 @@ def _shape(row: dict, query: str) -> dict:
     """
     from ..spans import find_clauses
 
-    text = row.get("text") or ""
+    # neon_store.hybrid_search already nests the passage fields; reading them from the top
+    # level yields None for every offset, which silently removes the provenance that is the
+    # entire point of the product rather than raising.
+    p = row.get("passage") or {}
+    text = p.get("text") or row.get("text") or ""
     try:
         clauses = [
             {"start": c.start, "end": c.end, "score": round(float(c.score), 4),
@@ -120,10 +124,10 @@ def _shape(row: dict, query: str) -> dict:
         "year": row.get("year"),
         "score": round(float(row.get("score") or 0.0), 6),
         "passage": {
-            "chunk_id": row.get("chunk_id"),
-            "section": row.get("section"),
-            "start_char": row.get("start_char"),
-            "end_char": row.get("end_char"),
+            "chunk_id": p.get("chunk_id"),
+            "section": p.get("section"),
+            "start_char": p.get("start_char"),
+            "end_char": p.get("end_char"),
             "text": text,
             "clauses": clauses,
         },

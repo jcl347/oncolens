@@ -35,6 +35,8 @@ from oncolens.serve import neon_store  # noqa: E402
 #: Rows per COPY+UPDATE round. Small enough that a dropped connection loses little work,
 #: large enough that the round-trip count stays low.
 BATCH = 4000
+#: Vacuum every N batches to keep MVCC bloat from hitting the project size limit.
+VACUUM_EVERY = 3
 
 
 def _write_vectors(dsn: str, conn, ids: list[str], vecs, dim: int) -> int:
@@ -90,6 +92,20 @@ def _write_vectors(dsn: str, conn, ids: list[str], vecs, dim: int) -> int:
                 conn = psycopg.connect(dsn, connect_timeout=20)
         written += len(batch_ids)
         print(f"  {written:,}/{len(ids):,}", end="\r")
+
+        # Vacuum periodically. Updating every row rewrites it under MVCC, so the table
+        # grows by its own size mid-run — which is how this hit Neon's 512 MB project
+        # limit with "could not extend file". A plain VACUUM makes the dead space
+        # reusable in place; VACUUM FULL would rewrite the table and need the headroom we
+        # are trying not to consume.
+        if (i // BATCH) % VACUUM_EVERY == VACUUM_EVERY - 1:
+            try:
+                vc = psycopg.connect(dsn, connect_timeout=20, autocommit=True)
+                with vc.cursor() as cur:
+                    cur.execute("VACUUM chunks")
+                vc.close()
+            except Exception as exc:  # noqa: BLE001 — housekeeping must not fail the run
+                print(f"\n  vacuum skipped ({type(exc).__name__})")
     return written
 
 

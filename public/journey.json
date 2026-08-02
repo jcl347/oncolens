@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-02T02:58:53+00:00",
-  "git_rev": "861d0f1",
+  "generated_at": "2026-08-02T04:04:17+00:00",
+  "git_rev": "2e40928",
   "live_store_reachable": true,
   "store_error": null,
   "stages": [
@@ -338,7 +338,48 @@
       "title": "Measured on 2,225 expert-written queries",
       "narrative": "Systems are compared on identical queries with a paired permutation test and a bootstrap confidence interval. With this many queries a two-point nDCG gap is still routinely noise, and shipping on a point estimate is how retrieval systems silently get worse.",
       "visual": "bars",
-      "systems": [],
+      "systems": [
+        {
+          "system": "bm25",
+          "ndcg@10": 0.3888,
+          "recall@10": 0.5318,
+          "mrr": 0.3496,
+          "map": 0.3398,
+          "unjudged@10": 0.9432
+        },
+        {
+          "system": "lsa",
+          "ndcg@10": 0.3088,
+          "recall@10": 0.4646,
+          "mrr": 0.2649,
+          "map": 0.257,
+          "unjudged@10": 0.9495
+        },
+        {
+          "system": "openai",
+          "ndcg@10": 0.4116,
+          "recall@10": 0.5678,
+          "mrr": 0.3681,
+          "map": 0.3589,
+          "unjudged@10": 0.9389
+        },
+        {
+          "system": "hybrid-lsa",
+          "ndcg@10": 0.3647,
+          "recall@10": 0.5206,
+          "mrr": 0.3218,
+          "map": 0.312,
+          "unjudged@10": 0.9442
+        },
+        {
+          "system": "hybrid-openai",
+          "ndcg@10": 0.4526,
+          "recall@10": 0.6082,
+          "mrr": 0.4096,
+          "map": 0.3993,
+          "unjudged@10": 0.9348
+        }
+      ],
       "metrics": [
         {
           "label": "Queries evaluated",
@@ -351,7 +392,7 @@
           "direction": "up"
         }
       ],
-      "caveat": "Benchmark has not been run against this index yet \u2014 no numbers are shown rather than stale ones."
+      "caveat": null
     },
     {
       "id": "storage",
@@ -362,7 +403,7 @@
       "metrics": [
         {
           "label": "Database size",
-          "value": 362,
+          "value": 456,
           "unit": " MB",
           "note": "",
           "provenance": "live",

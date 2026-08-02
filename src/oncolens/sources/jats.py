@@ -143,6 +143,85 @@ class CitationContext:
     section: str = ""
 
 
+@dataclass
+class SectionCitations:
+    """A review section heading and every work cited inside it.
+
+    **Why this is the most product-shaped label available.** Every other stratum in this
+    project is known-item lookup: one query, one right paper. A researcher does not ask
+    that. They ask *"what are the known resistance mechanisms to osimertinib?"* and expect
+    a **set** of papers.
+
+    A review article is exactly that mapping, already made by an expert. Its section
+    heading is the question — measured on real articles, headings look like *"Lactate-
+    hepcidin axis in ferroptosis"* and *"MCTs and GPR81/HCAR1"* — and the works cited
+    under that heading are the answer set the review's author judged relevant, after
+    reading the field. Nobody had to annotate anything.
+    """
+
+    heading: str
+    rids: list[str] = field(default_factory=list)
+    depth: int = 1
+
+
+#: Headings that are structural rather than topical. A query for "Introduction" measures
+#: nothing, and "Conclusion" cites the whole review indiscriminately.
+_STRUCTURAL_HEADING = re.compile(
+    r"^\s*(abstract|introduction|background|conclusion|conclusions|summary|"
+    r"discussion|methods?|materials and methods|results?|references|"
+    r"acknowledge?ments?|funding|author contributions|conflicts? of interest|"
+    r"data availability|supplementary|abbreviations|future (directions|perspectives)|"
+    r"outlook|overview)\s*:?\s*$",
+    re.I,
+)
+
+_SEC = re.compile(r"<sec\b[^>]*>", re.I)
+
+
+def extract_section_citations(xml: str, *, min_citations: int = 3,
+                              min_heading_chars: int = 12,
+                              max_heading_chars: int = 110) -> list[SectionCitations]:
+    """Section headings paired with the references cited beneath them.
+
+    Sections are taken as the span from one ``<sec>`` opening to the next, which is a
+    deliberate simplification: JATS nests sections, and attributing a citation to the
+    innermost enclosing heading is what makes the answer set *specific* rather than
+    inheriting everything from a top-level chapter.
+    """
+    mb = _BODY.search(xml)
+    body = mb.group(0) if mb else xml
+    body = _REF_LIST.sub(" ", body)
+
+    out: list[SectionCitations] = []
+    starts = [m.start() for m in _SEC.finditer(body)] + [len(body)]
+    for i in range(len(starts) - 1):
+        span = body[starts[i]: starts[i + 1]]
+        tm = re.search(r"<title>(.*?)</title>", span, re.S)
+        if not tm:
+            continue
+        heading = strip_tags(tm.group(1))
+        if not (min_heading_chars <= len(heading) <= max_heading_chars):
+            continue
+        if _STRUCTURAL_HEADING.match(heading):
+            continue
+        rids: list[str] = []
+        for x in _XREF.finditer(span):
+            rid_m = _RID_ATTR.search(x.group(0))
+            if not rid_m:
+                continue
+            for rid in rid_m.group(1).split():
+                if rid not in rids:
+                    rids.append(rid)
+        if len(rids) >= min_citations:
+            out.append(SectionCitations(heading=heading, rids=rids))
+    return out
+
+
+def article_title(xml: str) -> str | None:
+    m = re.search(r"<article-title>(.*?)</article-title>", xml, re.S)
+    return strip_tags(m.group(1)) if m else None
+
+
 def _section_titles(body: str) -> list[tuple[int, str]]:
     out = []
     for m in re.finditer(r"<title>(.*?)</title>", body, re.S):

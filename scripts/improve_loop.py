@@ -56,6 +56,9 @@ from oncolens.env import load_env, local_data_dir  # noqa: E402
 from oncolens.eval import metrics as M  # noqa: E402
 from oncolens.eval.citation_labels import assert_source_excluded  # noqa: E402
 from oncolens.eval.stats import compare  # noqa: E402
+from oncolens.eval.weighting import (  # noqa: E402
+    PRIMARY_METRIC, SECONDARY_METRICS, STRATUM_WEIGHTS, describe,
+)
 from oncolens.retrieval.dense import make_backend  # noqa: E402
 from oncolens.retrieval.fusion import aggregate_chunks_to_docs, reciprocal_rank_fusion  # noqa: E402
 from oncolens.retrieval.lexical import BM25Index  # noqa: E402
@@ -278,8 +281,14 @@ class Verdict:
     regressions: list = field(default_factory=list)
 
 
-def judge(name: str, base: dict, cand: dict) -> Verdict:
-    panel = M.CONSENSUS_METRICS
+def judge(name: str, base: dict, cand: dict, stratum: str = "claim") -> Verdict:
+    # Each stratum is gated on the metric that matches ITS task. A synthesis question is
+    # answered by a set, so coverage is what counts and reciprocal rank is close to
+    # meaningless - handing back the single best paper out of nine is not a good answer
+    # to "what is known about X". An identifier lookup is the opposite.
+    primary = PRIMARY_METRIC.get(stratum, "mrr")
+    panel = tuple(dict.fromkeys(
+        (primary,) + SECONDARY_METRICS.get(stratum, ()) + M.CONSENSUS_METRICS))
     alpha = ALPHA / max(len(panel), 1)          # Bonferroni WITHIN this iteration
     wins, regs, deltas = [], [], {}
     for metric in panel:
@@ -331,7 +340,7 @@ def main() -> int:
     ap.add_argument("--run-all", action="store_true")
     ap.add_argument("--split", default="dev", choices=["dev", "test", "all"])
     ap.add_argument("--stratum", default="claim",
-                    choices=["claim", "concept", "identifier", "all"],
+                    choices=["claim", "concept", "identifier", "synthesis", "all"],
                     help="MEASURED: claim queries are 27 words, concept 2, identifier 1. "
                          "Users type the short ones, so a change must be judged on each "
                          "shape separately rather than on a pooled mean.")
@@ -344,6 +353,8 @@ def main() -> int:
 
     load_env()
     if args.list:
+        print(describe())
+        print()
         print(f"{'candidate':<18}{'description'}")
         print("-" * 78)
         for c in CANDIDATES:
@@ -365,9 +376,12 @@ def main() -> int:
     harness = Harness(load_chunks(), queries)
     print("\nrunning baseline...")
     base = harness.run({}, qrels, exclude)
+    _p = PRIMARY_METRIC.get(args.stratum, "mrr")
+    print(f"  PRIMARY {_p}={mean_of(base,_p):.4f}  (weight "
+          f"{STRATUM_WEIGHTS.get(args.stratum, 0):.2f} in the composite)")
     print(f"  mrr={mean_of(base,'mrr'):.4f}  success@1={mean_of(base,'success@1'):.4f}  "
           f"success@5={mean_of(base,'success@5'):.4f}  "
-          f"success@10={mean_of(base,'success@10'):.4f}")
+          f"recall@20={mean_of(base,'recall@20'):.4f}")
 
     names = ([c.name for c in CANDIDATES if c.name != "baseline"] if args.run_all
              else args.run)
@@ -388,14 +402,17 @@ def main() -> int:
             print(f"  FAILED to run: {type(e).__name__}: {str(e)[:140]}")
             ledger.append(Verdict(name, False, f"run error: {type(e).__name__}"))
             continue
-        v = judge(name, base, cand)
+        v = judge(name, base, cand, args.stratum)
         ledger.append(v)
-        for m in M.CONSENSUS_METRICS:
+        primary = PRIMARY_METRIC.get(args.stratum, "mrr")
+        for m in dict.fromkeys((primary,) + SECONDARY_METRICS.get(args.stratum, ())
+                               + M.CONSENSUS_METRICS):
             d = v.deltas.get(m)
             if not d:
                 continue
             flag = "WIN " if m in v.wins else ("REG " if m in v.regressions else "    ")
-            print(f"  {flag}{m:<12}{mean_of(base,m):>8.4f} -> {mean_of(cand,m):>8.4f}"
+            star = "*" if m == primary else " "
+            print(f"  {flag}{star}{m:<12}{mean_of(base,m):>8.4f} -> {mean_of(cand,m):>8.4f}"
                   f"  ({d['delta']:+.4f}, p={d['p']:.4f})")
         print(f"  unjudged@10 {v.deltas['unjudged@10']['delta']:+.4f}")
         print(f"  -> {'PROMOTE' if v.promoted else 'DISCARD'}: {v.reason}")

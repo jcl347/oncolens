@@ -97,6 +97,22 @@ def main() -> int:
     idents = identifier_queries(claims)
     print(f"identifier stratum: {len(idents)} queries (literals mined from claims)")
 
+    # Synthesis: R&D questions with expert-curated answer SETS, from review sections.
+    # Built separately because it needs the JATS cache, not the store.
+    synth_path = local_data_dir() / "qrels_synthesis.json"
+    synth: list[StratifiedQuery] = []
+    if synth_path.exists():
+        sd = json.loads(synth_path.read_text(encoding="utf-8"))
+        for qid, q in sd["queries"].items():
+            synth.append(StratifiedQuery(
+                query_id=qid, query=q, stratum="synthesis",
+                judgments=sd["qrels"].get(qid, {}),
+                exclude_doc=sd.get("exclude", {}).get(qid),
+                note=sd.get("notes", {}).get(qid, "")))
+        print(f"synthesis stratum:  {len(synth)} queries (review sections)")
+    else:
+        print("synthesis stratum:  0 — run scripts/build_synthesis_labels.py first")
+
     # Guard the artifact, not the accessor.
     try:
         assert_no_descriptor_leakage(sample_texts(), [c.query for c in concepts])
@@ -105,12 +121,12 @@ def main() -> int:
         print(f"leakage check:      FAIL — {e}")
         return 1
 
-    allq = claims + concepts + idents
+    allq = claims + concepts + idents + synth
     s = summarize(allq)
     print("\n" + "=" * 66)
     print(f"{'stratum':<14}{'queries':>9}{'median words':>15}{'median rel docs':>18}")
     print("-" * 66)
-    for name in ("claim", "concept", "identifier"):
+    for name in ("synthesis", "concept", "identifier", "claim"):
         if name in s:
             r = s[name]
             print(f"{name:<14}{r['queries']:>9}{r['median_words']:>15}"

@@ -37,6 +37,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
+# Real biomedical text contains Greek letters, math symbols and superscripts; the Windows
+# console defaults to cp1252 and would raise UnicodeEncodeError on them.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
 from oncolens.env import describe_credentials, load_env  # noqa: E402
 from oncolens.retrieval.chunking import chunk_corpus  # noqa: E402
 from oncolens.sources import pmc_cloud, pubmed  # noqa: E402
@@ -85,6 +92,8 @@ def main() -> int:
     ap.add_argument("--commercial-only", action="store_true", default=True,
                     help="skip articles whose licence forbids commercial use (default on)")
     ap.add_argument("--embed-dim", type=int, default=192)
+    ap.add_argument("--no-blob", action="store_true",
+                    help="skip Blob upload even if a token is present")
     args = ap.parse_args()
 
     # Read .env.local directly rather than requiring the caller to source it — the
@@ -96,13 +105,17 @@ def main() -> int:
     for line in describe_credentials():
         print(line)
     if not args.dry_run:
-        missing = [n for n in ("POSTGRES_URL", "BLOB_READ_WRITE_TOKEN")
-                   if not (os.environ.get(n) or os.environ.get("DATABASE_URL" if n == "POSTGRES_URL" else n))]
-        if missing:
-            print(f"\nERROR: {', '.join(missing)} not set.")
-            print("Run:  vercel link  &&  vercel env pull .env.local")
+        if not (os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")):
+            print("\nERROR: POSTGRES_URL / DATABASE_URL not set - nowhere to write.")
+            print("Run:  vercel env pull .env.local --environment=production")
             print("Or add --dry-run to fetch papers without writing to any store.")
             return 1
+        # Blob avoids duplicating whole articles and gives each passage a link back to its
+        # source, but retrieval never reads it — passage text lives in chunks.text. So a
+        # missing or unusable Blob degrades the pipeline rather than blocking it.
+        if not os.environ.get("BLOB_READ_WRITE_TOKEN") or args.no_blob:
+            print("\nNOTE: skipping Blob upload. Passage text is still stored in Postgres,")
+            print("      so search and comparison are fully functional without it.")
     print()
 
     # ---- 1. discover real PMIDs by MeSH query --------------------------------
@@ -171,20 +184,32 @@ def main() -> int:
             print(f"    MeSH: {d['descriptors'][:5]}")
         return 0
 
-    # ---- 4. full text -> Vercel Blob ----------------------------------------
-    from oncolens.serve import vercel_blob
-
-    print("uploading full text to Vercel Blob...")
+    # ---- 4. full text -> Vercel Blob (optional) -----------------------------
+    use_blob = bool(os.environ.get("BLOB_READ_WRITE_TOKEN")) and not args.no_blob
     uploaded = 0
-    for d in docs:
+    if use_blob:
+        from oncolens.serve import vercel_blob
+
+        print("uploading full text to Vercel Blob...")
+    else:
+        print("skipping Blob upload (no token) — text still indexed in Postgres")
+    for d in (docs if use_blob else []):
         pmcid = d.get("meta", {}).get("pmcid")
         body = next((s["text"] for s in d["sections"] if s["name"] == "Body"), None)
         if not (pmcid and body):
             continue
-        ref = vercel_blob.put_text(vercel_blob.blob_path_for(pmcid, 1, "txt"), body)
-        d["meta"].update(ref.as_meta())
-        uploaded += 1
-    print(f"  {uploaded} articles in Blob")
+        try:
+            ref = vercel_blob.put_text(vercel_blob.blob_path_for(pmcid, 1, "txt"), body)
+            d["meta"].update(ref.as_meta())
+            uploaded += 1
+        except Exception as e:
+            # A storage failure must not discard an otherwise-good ingestion: everything
+            # needed for retrieval is already in hand, and Blob is only a convenience.
+            print(f"  ! Blob upload failed ({str(e)[:70]}) — continuing without it")
+            use_blob = False
+            break
+    if use_blob:
+        print(f"  {uploaded} articles in Blob")
 
     # ---- 5. chunks + embeddings -> Postgres/pgvector -------------------------
     import psycopg
@@ -211,9 +236,18 @@ def main() -> int:
 
     # ---- 6. real qrels from NLM human indexing ------------------------------
     qrels = pubmed.mesh_qrels(records)
-    from oncolens.serve import vercel_blob as vb
-    vb.put_json("qrels/mesh.json", {"queries": qrels})
-    print(f"  {len(qrels)} MeSH concept queries -> Blob (qrels/mesh.json)")
+    if use_blob:
+        from oncolens.serve import vercel_blob as vb
+        vb.put_json("qrels/mesh.json", {"queries": qrels})
+        print(f"  {len(qrels)} MeSH concept queries -> Blob (qrels/mesh.json)")
+    else:
+        import json as _json
+        qp = REPO / "data" / "qrels"
+        qp.mkdir(parents=True, exist_ok=True)
+        with open(qp / "mesh.jsonl", "w", encoding="utf-8") as f:
+            for q in qrels:
+                f.write(_json.dumps(q, ensure_ascii=False) + "\n")
+        print(f"  {len(qrels)} MeSH concept queries -> data/qrels/mesh.jsonl")
 
     print("\nDone. Nothing was written to the repository or to OneDrive.")
     return 0

@@ -16,6 +16,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
+# Real biomedical text contains Greek letters, math symbols and superscripts; the Windows
+# console defaults to cp1252 and would raise UnicodeEncodeError on them.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
 from oncolens.env import load_env  # noqa: E402
 
 

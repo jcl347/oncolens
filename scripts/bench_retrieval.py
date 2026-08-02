@@ -72,6 +72,8 @@ def main() -> int:
                     default=["bm25", "lsa", "openai", "hybrid-lsa", "hybrid-openai"])
     ap.add_argument("--dim", type=int, default=192)
     ap.add_argument("--candidates", type=int, default=200)
+    ap.add_argument("--rerank-depth", type=int, default=24,
+                    help="passages sent to the LLM reranker per query")
     ap.add_argument("--json-out", default=None)
     args = ap.parse_args()
 
@@ -98,7 +100,8 @@ def main() -> int:
     bm25 = BM25Index()
     bm25.index([{"chunk_id": c["chunk_id"], "text": c["text"]} for c in chunks])
     dense_cache: dict[str, tuple[np.ndarray, np.ndarray]] = {}
-    for backend_name in {s.replace("hybrid-", "") for s in args.systems} - {"bm25"}:
+    wanted = {s.replace("hybrid-", "").replace("+rerank", "") for s in args.systems}
+    for backend_name in sorted(wanted - {"bm25", ""}):
         print(f"encoding with {backend_name}...")
         be = make_backend(backend_name, dim=args.dim)
         be.fit(texts)
@@ -112,15 +115,28 @@ def main() -> int:
         per_query: dict[str, dict[str, float]] = {}
         for qi, qid in enumerate(qids):
             runs: list[list[tuple[str, float]]] = []
-            if system == "bm25" or system.startswith("hybrid"):
+            if system.startswith("bm25") or system.startswith("hybrid"):
                 runs.append(bm25.search(queries[qid], k=args.candidates))
-            if system != "bm25":
-                name = system.replace("hybrid-", "")
+            if system.replace("+rerank", "") != "bm25":
+                name = system.replace("hybrid-", "").replace("+rerank", "")
                 qv, dv = dense_cache[name]
                 runs.append(dense_run(qv, dv, chunk_ids, qi, args.candidates))
 
             fused = (reciprocal_rank_fusion(runs) if len(runs) > 1
                      else [(cid, s) for cid, s in runs[0]])
+
+            if system.endswith("+rerank"):
+                # Rerank at PASSAGE level before collapsing to documents: the reranker's
+                # advantage is reading query and passage together, which is lost if it
+                # only ever sees a document's best-scoring chunk.
+                from oncolens.retrieval.llm_rerank import rerank as llm_rerank
+                head = fused[:args.rerank_depth]
+                by_id = {c["chunk_id"]: c["text"] for c in chunks}
+                order = llm_rerank(queries[qid], [by_id[cid] for cid, _ in head])
+                fused = ([(head[r.index][0], r.score) for r in order]
+                         + [(cid, -1.0 - i) for i, (cid, _) in
+                            enumerate(fused[args.rerank_depth:])])
+
             docs = aggregate_chunks_to_docs(fused, chunk_to_doc, strategy="max")
             src = exclude.get(qid)
             ranking = [d for d, _ in docs if d != src][:TOP_K]

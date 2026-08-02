@@ -111,27 +111,74 @@ working notes; `docs/STORAGE_DECISION.md` has the storage evaluation.
 ### Reference stripping (`retrieval/references.py`)
 
 PMC plain text includes the bibliography, and citation strings retrieve well while
-containing no findings.
+containing no findings. Measured across 60 publisher-labelled articles, bibliographies are
+a **median 19% of full-text characters** (range 5.6%–42.4%).
 
-| | Measured |
+**This is measured against ground truth, not judged by eye.** PMC's JATS XML carries
+`<ref-list>` — the publisher's own statement of where the bibliography starts.
+`sources/jats.py` aligns it onto the plain text, which turns a matter of taste into a
+labelled task:
+
+```bash
+python scripts/analyze_ref_signals.py --limit 60   # which signals actually separate?
+python scripts/bench_references.py    --limit 60   # score the detector
+python scripts/compare_ref_detectors.py --ref HEAD # paired old vs new, same articles
+```
+
+The labels showed the original signals were fine and the *design* was wrong in three
+specific ways: per-**word** normalisation (a 14k-char block scored like a 200-char one), a
+trailing-**run** requirement that could not fire when PMC emits the whole bibliography as
+one paragraph, and an author-initials regex requiring `[ ,;]` so the ACS style `Zhou J.
+Xu Y.` matched nothing. Two signals carrying hand-assigned weights of 0.20 and 0.12 turned
+out to be **pure noise** (AUC 0.692 and 0.533) and were removed.
+
+Replaced by **suffix search** over per-1000-character density — the earliest point from
+which everything to the end is reference-dense — which is agnostic to how the rendition
+happens to break lines.
+
+| Metric (paired, identical articles) | Old | New |
+|---|---|---|
+| Bibliographies detected | 57/60 | **60/60** |
+| Mean refs dropped | 0.9500 | **1.0000** |
+| Mean body kept | 1.0000 | 0.9998 |
+
+The single regression is the article the old detector missed *entirely*: it trades 679 chars
+of author-contribution boilerplate for removing the whole bibliography.
+
+**Stale rows fixed.** `upsert_chunks` now defaults to `replace=True`. Stripping removes ~20%
+of an article, so re-ingestion previously left surplus rows behind — observed directly as
+6,677 rows for a run that produced 6,546 — and the metrics then described a corpus the code
+no longer produced.
+
+### Labels from citation contexts (`eval/citation_labels.py`)
+
+When an author writes *"resistance to osimertinib is driven by MET amplification [12]"*,
+that sentence is a technical description of reference [12] written by someone who read it.
+It is a query; the cited paper is a relevant answer; the judgment is free and expert — and
+it is **claim-level**, where MeSH is only document-level topical.
+
+Not circular: labels come from JATS `<xref>` markup, while retrieval indexes the plain-text
+rendition where citation markers are already flattened away.
+
+Guards for the ways this could quietly measure nothing:
+
+| Hazard | Guard |
 |---|---|
-| Bibliography share of full-text characters | **18.4%** |
-| Passages reference-shaped, before | 9.1% (203/2233) |
-| Passages reference-shaped, after | **5.8%** |
-| Bibliographies detected | **5 of 6** articles |
+| The citing paper contains the query **verbatim** | `assert_source_excluded()` **raises** if it appears in results |
+| Judgments are incomplete | report `bpref` + `unjudged@k`, never nDCG alone |
+| Popularity bias | `MAX_PER_TARGET=4`, `MAX_PER_SOURCE=12` |
+| *"several studies show X [3,7,11]"* | grade falls with co-citation; >3 dropped |
+| *"as previously described [9]"* | rejected — requires an assertive verb |
 
-Three approaches were tried and two failed, which is why the final design is positional:
+**The yield number that drives corpus strategy:** on a 139-paper topically-sampled corpus,
+mining produced **3 labels from 4,973 citation contexts**, because **4,967 cited papers we
+do not hold**. Sampling by topic gives a corpus; sampling *along the citation graph* gives a
+corpus with measurable structure:
 
-- **Heading detection failed** — PMC emits only `JOURNAL INFORMATION` / `ARTICLE
-  INFORMATION` as capitalised headings; there is no `REFERENCES` heading in that form.
-- **Per-paragraph classification failed** — genuine prose citing `Chen et al. (2019)` plus
-  a DOI scores 0.500, above the 0.45 threshold. It deletes findings.
-- **Trailing-run detection fired zero times** — PMC emits the whole bibliography as *one*
-  paragraph (14,123 chars, 55 entries), so the run length was 1.
-
-**Not solved.** ~1 in 6 bibliographies is missed and a reference block still ranked first
-for the test query. Ingestion also upserts rather than replaces, so pre-stripping rows
-persist — clear `chunks` before re-measuring.
+```bash
+python scripts/build_citation_labels.py --snowball-out pmids.txt
+python scripts/ingest_real.py --pmids-file pmids.txt --max-papers 1600
+```
 
 ### Chunk density — why real data was necessary
 

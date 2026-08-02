@@ -48,46 +48,102 @@ PMC<id>.<ver>/PMC<id>.<ver>.txt plain text extracted from JATS by NCBI
 
 Drive ingestion from the metadata JSON, never from a guessed path convention.
 
+### 3.1 Licence policy — a corrected mistake worth remembering
+
+The original gate admitted only Creative Commons codes and reported "30 correctly skipped on
+licence" as if that were good news. It was not. **`TDM` is the PMC code for Text and Data
+Mining** — content publishers release *specifically* for this use — and the gate was
+rejecting it for the sole reason that it is not Creative Commons. That is backwards.
+
+Measured on a 28-article sample:
+
+| Licence | Count | Old gate |
+|---|---|---|
+| CC BY | 15 | indexed |
+| CC BY-NC-ND | 6 | skipped |
+| **TDM** | **4** | **skipped — wrongly** |
+| CC BY-NC | 3 | skipped |
+
+`LICENSE_POLICIES` in `sources/pmc_cloud.py` now names the intent rather than hard-coding
+one answer:
+
+| Policy | Indexes | Use |
+|---|---|---|
+| `research` (**default**) | 28/28 (100%) | academic / internal research |
+| `commercial` | 19/28 (68%) | a commercial product; excludes NC |
+| `permissive_only` | 15/28 (54%) | the old behaviour; CC BY family only |
+
+Effect of the fix: **58 → 88 documents with real full text.** The old default was discarding
+46% of available text. ⚠️ If OncoLens is ever commercialised, switch to `commercial` — the
+NC-licensed content in the index today is not licensed for that.
+
 ## 4. Measured design decisions
 
-### 4.1 Reference stripping — real, partial
+### 4.1 Reference stripping — now measured against publisher ground truth
 
-**Problem, measured:** 9.1% of ingested passages (203/2233) were bibliography. Citation
-strings match queries lexically while containing no findings — **two of the top three hits**
-for *"osimertinib resistance mechanism"* were reference entries.
+**Problem, measured:** bibliographies are a **median 19% of full-text characters** (range
+5.6%–42.4%, n=60). Citation strings match queries lexically while containing no findings —
+**two of the top three hits** for *"osimertinib resistance mechanism"* were reference
+entries.
 
-**What didn't work, and why:**
-- *Heading detection.* PMC's txt rendition emits only `JOURNAL INFORMATION` and
-  `ARTICLE INFORMATION` as capitalised headings. There is no `REFERENCES` heading in that
-  form — it appears as its own short paragraph.
-- *Per-paragraph classification alone.* Real prose citing `Chen et al. (2019)` plus a DOI
-  scores 0.500 — above the 0.45 paragraph threshold. Classifying independently deletes
-  findings.
-- *Trailing-run detection alone.* Fired **zero times** on real articles, because PMC emits
-  the entire bibliography as **one paragraph** (14,123 chars, 55 entries). The run length
-  was 1, below `MIN_RUN=3`.
+**The method change that mattered more than any threshold.** The first version was tuned by
+opening articles and judging whether the output looked right — the exact failure mode this
+project exists to avoid. PMC's JATS XML carries `<ref-list>`, which is *the publisher's own*
+statement of where the bibliography starts. `sources/jats.py` aligns it onto the plain-text
+rendition, which turns this from taste into a labelled task.
 
-**What works:** heading paragraph (last 50% only) → single large high-scoring trailing
-block → trailing run, in that order. Position is the disambiguator: one reference-shaped
-paragraph mid-document is a citation; a large block at the end is a bibliography.
+**What the labels showed** (`scripts/analyze_ref_signals.py`, pairwise AUC over 60 articles;
+1.0 = bibliography always scores higher, 0.5 = useless):
 
-**Measured outcome — report this honestly:**
+| signal (per 1000 chars) | body median | refs median | AUC | |
+|---|---|---|---|---|
+| years | 0.254 | 5.952 | **1.000** | decisive |
+| DOIs | 0.034 | 4.090 | **1.000** | decisive |
+| author initials (tolerant) | 0.730 | 24.503 | **1.000** | decisive |
+| function-word fraction | 0.230 | 0.086 | **0.000** | decisive, inverted |
+| page ranges | 0.255 | 2.431 | 0.983 | decisive |
+| author initials (**old, strict**) | 0.588 | 13.303 | 0.900 | degraded by a regex bug |
+| numbered entries | 0.000 | 0.000 | 0.692 | **noise — was weighted 0.20** |
+| volume:page | 0.000 | 0.000 | 0.533 | **noise — was weighted 0.12** |
 
-| Metric | Before | After |
+So the signals were never the problem. **Three specific defects were:**
+
+1. **Per-word normalisation.** Made a 14,123-char block look like a 200-char one.
+   Now normalised **per 1000 characters**.
+2. **The trailing-run rule.** Required ≥3 reference-shaped paragraphs, but PMC commonly
+   emits the whole bibliography as **one paragraph**, so run length was 1 and it never
+   fired. Replaced by **suffix search** — the earliest point from which everything to the
+   end is reference-dense — which is agnostic to how the rendition breaks lines.
+3. **`_AUTHOR_INITIALS` required `[ ,;]`** after the initial, so the ACS/Nature style
+   `Zhou J. Xu Y.` matched *nothing*. Adding `.` to the class moved AUC 0.900 → 1.000.
+
+**Measured outcome — paired on identical articles** (`scripts/compare_ref_detectors.py`):
+
+| Metric | Old | New |
 |---|---|---|
-| Bibliography share of full-text characters | — | **18.4% removed** |
-| Passages reference-shaped (strict ≥0.75) | 9.1% | **5.8%** |
-| Bibliographies detected | — | **5 of 6 articles** |
+| Bibliographies detected | 57/60 | **60/60** |
+| Mean refs dropped | 0.9500 | **1.0000** |
+| Mean body kept | 1.0000 | 0.9998 |
+| Fully correct | 57/60 | **59/60** |
 
-**It is not solved.** ~1 in 6 bibliographies is missed, and a reference block still ranked
-first for the test query. Two known causes: detector misses, and **stale rows** — ingestion
-upserts rather than replaces, so passages from a pre-stripping run persist. Clear `chunks`
-before re-measuring.
+The one regression is **PMC13402827 — the article the old detector missed entirely**: it
+trades 679 chars (CRediT author-contribution boilerplate plus figure captions) for removing
+the whole bibliography. Net clearly positive, but it is a real loss and the figure/table
+captions in it were useful.
 
-`STANDALONE_THRESHOLD = 0.75` is deliberately stricter than `PARA_THRESHOLD = 0.45`: the
-positional stripper has position as evidence and structurally cannot delete mid-document
-text, a standalone check has neither protection, and deleting findings is far worse than
-retaining a few reference passages.
+Earlier notes here claimed a ~1-in-6 miss rate from an ad-hoc sample; **the measured rate on
+labelled data is 3/60 (5%)**. Use the measured number.
+
+**Stale rows are fixed.** `neon_store.upsert_chunks` now defaults to `replace=True`, which
+deletes a document's existing chunks before inserting. Stripping removes ~20% of an article,
+so re-ingestion previously left surplus rows behind and the metrics described a corpus the
+code no longer produced. This was observed directly: 6,677 rows in `chunks` for a run that
+produced 6,546.
+
+`STANDALONE_THRESHOLD = 0.72` stays stricter than `BLOCK_THRESHOLD = 0.55`: the positional
+stripper has position as evidence and structurally cannot delete mid-document text, a
+standalone check has neither protection, and deleting findings is far worse than retaining
+a few reference passages.
 
 ### 4.2 Chunk density needs real documents
 
@@ -110,6 +166,57 @@ an actual number), MMR with a **hard per-document cap**, and marks unreported di
 Verified: 4 papers × 3 aspects at 92% coverage spanning three subdomains. **Known
 weakness:** the `effect` aspect often selects the same passage as `cohort`, because cohort
 sentences also contain numbers.
+
+### 4.4 Labels: what we have, and why bibliographies are the best source
+
+Three label sources are available here. They are not interchangeable — they measure
+different things, and the difference decides what a score means.
+
+| Source | Granularity | Judge | Weakness |
+|---|---|---|---|
+| **MeSH** (`MajorTopicYN`) | document-level, topical | NLM human indexers | says a paper is *about* a topic; cannot separate measuring a mechanism from mentioning it |
+| **Citation contexts** | claim-level, specific | the citing author | incomplete; popularity-biased |
+| Hand judgments | anything | us | does not scale, and we would be grading our own homework |
+
+**Citation contexts are found data of unusually good quality.** When an author writes
+
+> "Acquired resistance to osimertinib is frequently driven by MET amplification [12]."
+
+they have written a technical description of reference [12] *after reading it*. That
+sentence is a query; the cited paper is a relevant answer; the judgment is free and expert.
+It is also exactly the product's shape — a claim-level concept search, not a topic browse.
+
+**It is not circular.** Labels come from JATS `<xref>` markup. We index the plain-text
+rendition, where citation markers are already flattened away. Label source and indexed
+representation are disjoint.
+
+**Validity hazards, each with a guard in `eval/citation_labels.py`:**
+
+1. **The citing paper contains the query verbatim** — it would rank #1 on string equality
+   and the metric would measure nothing. Every query records `source_doc_id`, and
+   `assert_source_excluded()` **raises** if it appears in the results. Asserted, not
+   documented: a convention you can forget is not a guard.
+2. **Judgments are incomplete** — other corpus papers may be equally relevant but simply
+   weren't the one cited. Read `bpref` and `unjudged@k` alongside nDCG, never nDCG alone.
+3. **Popularity bias** — a few landmark papers are cited constantly. Capped at
+   `MAX_PER_TARGET = 4`, and `MAX_PER_SOURCE = 12` stops one review with 300 references
+   from becoming the benchmark.
+4. **Diffuse attribution** — *"several studies have shown X [3,7,11,14]"* asserts nothing
+   specific. Grade falls with co-citation (3 sole → 2 → 1) and >3 co-cited is dropped.
+5. **Contentless sentences** — *"as previously described [9]"* describes nothing. Filtered
+   on content, requiring an assertive verb rather than a hand-listed vocabulary that would
+   bias the benchmark toward terms we thought of.
+
+**The yield number that drives corpus strategy.** On the first topically-sampled corpus
+(139 papers), citation mining produced **3 labels from 4,973 contexts** — because **4,967
+cited papers we do not hold**. 5,057 distinct cited PMIDs were missing, the most-cited
+appearing 12–16 times each.
+
+That is the argument for **snowball ingestion**: expanding the corpus along its own citation
+graph both grows it *and* converts existing citations into labels, whereas topical sampling
+adds papers whose citations point back out of the corpus. Sampling by topic gives a corpus;
+sampling by citation gives a corpus **with a measurable structure**.
+`scripts/build_citation_labels.py --snowball-out` → `ingest_real.py --pmids-file`.
 
 ## 5. Evaluation — the part that is easy to fake
 

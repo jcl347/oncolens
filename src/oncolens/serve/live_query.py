@@ -140,6 +140,125 @@ def _shape(row: dict, query: str) -> dict:
     }
 
 
+#: A cell must clear this to count as "reports this dimension". Below it the honest answer
+#: is NOT REPORTED — a blank cell reads as *no effect* when it means *not measured*, and
+#: that misreading is worse than an empty table.
+CELL_MIN_SCORE = 0.08
+
+
+def _cues_to_tsquery(cues: tuple[str, ...]) -> str:
+    """Build a valid ``to_tsquery`` string from human-written cue phrases.
+
+    The cue lists are written for readability, so they contain things Postgres rejects:
+    trailing spaces (``"hr "``), bare operators (``"p<"``, ``"n ="``), and punctuation
+    (``"95% ci"``). Naively substituting ``<->`` for spaces produced
+    ``"hr <-> | odds <-> ratio"`` and a syntax error. Cues are therefore reduced to
+    alphanumeric tokens, multi-word phrases become adjacency groups, and anything left
+    empty is dropped rather than emitted as a dangling operator.
+    """
+    import re as _re
+
+    parts: list[str] = []
+    for cue in cues:
+        tokens = [t for t in _re.split(r"[^A-Za-z0-9]+", cue.lower()) if t]
+        if not tokens:
+            continue
+        phrase = " <-> ".join(tokens)
+        parts.append(f"({phrase})" if len(tokens) > 1 else phrase)
+    # Deduplicate while preserving order; repeated terms only inflate the parse.
+    seen: set[str] = set()
+    uniq = [p for p in parts if not (p in seen or seen.add(p))]
+    return " | ".join(uniq)
+
+
+def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
+            aspect_keys: tuple[str, ...] | None = None) -> dict:
+    """Papers x technical dimensions, every cell carrying its own citation.
+
+    **Why this is not just top-k.** Asking "how do these studies measure X" with a plain
+    top-k returns passages clustered inside the single most on-topic paper, several of
+    which state no method at all. So the query selects *documents* first, then each cell is
+    filled by searching **within that document** for a passage that actually reports the
+    dimension — full-text ranked against the aspect's cue vocabulary, and for numeric
+    aspects (cohort size, effect size) required to contain a digit, because a cohort
+    sentence without a number is not a cohort answer.
+
+    Runs entirely in SQL against the live store. The previous implementation imported the
+    offline ``Retriever``, which needs a fitted in-process index and scipy — neither
+    present in a serverless function, so it returned 500 in production.
+    """
+    from ..aspects import ASPECTS_BY_KEY, DEFAULT_ASPECT_KEYS
+
+    keys = tuple(aspect_keys or DEFAULT_ASPECT_KEYS)
+    aspects = [ASPECTS_BY_KEY[k] for k in keys if k in ASPECTS_BY_KEY]
+    if not aspects:
+        aspects = [ASPECTS_BY_KEY[k] for k in DEFAULT_ASPECT_KEYS]
+
+    top = index.search(query, top_k=n_papers)
+    docs = [r["doc_id"] for r in top["results"]]
+    titles = {r["doc_id"]: r["title"] for r in top["results"]}
+    years = {r["doc_id"]: r.get("year") for r in top["results"]}
+    if not docs:
+        return {"query": query, "aspects": list(keys), "doc_ids": [], "coverage": 0.0,
+                "cells": {}, "titles": {}, "years": {},
+                "notes": ["no documents matched the query"]}
+
+    conn = index.conn()
+    cells: dict[str, dict] = {}
+    filled = 0
+    with conn.cursor() as cur:
+        for asp in aspects:
+            tsquery = _cues_to_tsquery(asp.cues)
+            if not tsquery:
+                continue
+            cur.execute(
+                """
+                SELECT DISTINCT ON (c.doc_id)
+                       c.doc_id, c.chunk_id, c.section, c.start_char, c.end_char, c.text,
+                       ts_rank_cd(c.tsv, to_tsquery('english', %(tsq)s)) AS rank
+                FROM chunks c
+                WHERE c.doc_id = ANY(%(docs)s)
+                  AND c.tsv @@ to_tsquery('english', %(tsq)s)
+                  AND (NOT %(numeric)s OR c.text ~ '[0-9]')
+                ORDER BY c.doc_id, rank DESC
+                """,
+                {"tsq": tsquery, "docs": docs, "numeric": asp.numeric},
+            )
+            found = {r[0]: r for r in cur.fetchall()}
+            for doc in docs:
+                row = found.get(doc)
+                key = f"{doc}|{asp.key}"
+                if row is None or float(row[6]) < CELL_MIN_SCORE:
+                    cells[key] = {"reported": False, "text": None}
+                    continue
+                filled += 1
+                cells[key] = {
+                    "reported": True,
+                    "chunk_id": row[1],
+                    "section": row[2],
+                    "start_char": row[3],
+                    "end_char": row[4],
+                    "text": (row[5] or "")[:700],
+                    "score": round(float(row[6]), 4),
+                }
+
+    total = len(docs) * len(aspects)
+    return {
+        "query": query,
+        "aspects": [{"key": a.key, "label": a.label, "numeric": a.numeric} for a in aspects],
+        "doc_ids": docs,
+        "titles": titles,
+        "years": years,
+        "coverage": round(filled / total, 4) if total else 0.0,
+        "cells": cells,
+        "source": "neon",
+        "notes": [
+            "A cell marked NOT REPORTED means the paper does not report that dimension — "
+            "not that the effect was absent.",
+        ],
+    }
+
+
 _LIVE: LiveIndex | None = None
 
 

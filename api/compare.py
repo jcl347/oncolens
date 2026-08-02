@@ -1,7 +1,16 @@
-"""Comparative retrieval endpoint: papers x technical dimensions, each cell cited."""
+"""Comparative retrieval endpoint: papers x technical dimensions, each cell cited.
+
+Runs against the LIVE store. The previous version imported the offline harness
+(``load_dataset`` + ``build_retriever``), which needs a fitted in-process index, a local
+corpus directory, and scipy — none of which exist in a serverless function. It returned
+``No module named 'scipy'`` in production while passing every local test, because locally
+all three happened to be present.
+"""
 from __future__ import annotations
 
-import json, os, sys
+import json
+import os
+import sys
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -20,25 +29,42 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801
             n = max(2, min(10, int((p.get("n") or ["5"])[0])))
         except ValueError:
             n = 5
-        aspects = [a for a in (p.get("aspect") or []) if a]
+        aspects = tuple(a for a in (p.get("aspect") or []) if a) or None
 
         try:
-            from oncolens.compare import comparative_search
-            from oncolens.configs import BASELINE
-            from oncolens.data import load_dataset
-            from oncolens.experiment import build_retriever
+            from oncolens.serve.live_query import compare, get_live_index
+            from oncolens.serve.neon_store import EmbeddingMismatch
+        except ImportError as e:
+            return self._send(503, {
+                "error": "server package not available in this deployment",
+                "detail": str(e)[:200],
+                "fix": 'vercel.json must set "includeFiles": "src/**" for this function, '
+                       "and pyproject.toml must list the runtime dependencies — Vercel "
+                       "installs from pyproject.toml in preference to requirements.txt",
+            })
 
-            ds = load_dataset(strict=False)
-            r = build_retriever(ds, BASELINE.variant("cmp", use_dense=True))
-            table = comparative_search(r, q, aspects=aspects or None, n_papers=n)
-            titles = {d["doc_id"]: d.get("title", "") for d in ds.docs}
-            payload = table.as_dict()
-            payload["titles"] = {d: titles.get(d, "") for d in table.doc_ids}
-            return self._send(200, payload)
-        except FileNotFoundError:
-            return self._send(503, {"error": "no corpus available", "hint": "run scripts/ingest_real.py"})
-        except Exception as e:
-            return self._send(500, {"error": "comparison failed", "detail": str(e)[:200]})
+        live = get_live_index()
+        if live is None:
+            return self._send(503, {
+                "error": "no store configured",
+                "fix": "set POSTGRES_URL (Neon pooler endpoint) in the Vercel project's "
+                       "Production environment, then redeploy",
+            })
+        try:
+            return self._send(200, compare(live, q, n_papers=n, aspect_keys=aspects))
+        except EmbeddingMismatch as e:
+            return self._send(503, {"error": "index/query embedding mismatch",
+                                    "detail": str(e)[:400]})
+        except Exception as e:  # never leak a stack trace to the client
+            return self._send(500, {
+                "error": "comparison failed",
+                "detail": f"{type(e).__name__}: {e}"[:300],
+                "config": {
+                    "postgres_url_set": bool(os.environ.get("POSTGRES_URL")
+                                             or os.environ.get("DATABASE_URL")),
+                    "openai_api_key_set": bool(os.environ.get("OPENAI_API_KEY")),
+                },
+            })
 
     def _send(self, status: int, body: dict):
         raw = json.dumps(body, ensure_ascii=False).encode("utf-8")

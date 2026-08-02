@@ -19,7 +19,16 @@ import { useEffect, useRef } from "react";
  *  - pauses entirely when the tab is hidden (no background GPU burn)
  *  - caps devicePixelRatio at 2 so 4K displays don't quadruple fragment work
  */
-export default function WebGLBackground() {
+export default function WebGLBackground({
+  intensity = 1,
+  parallax = false,
+}: {
+  /** Scales the whole field's brightness. Below 1 for pages with dense body copy. */
+  intensity?: number;
+  /** Drift the field with scroll and cursor. Gives a long page depth without motion
+   *  that competes with reading — the shift is a fraction of the scroll distance. */
+  parallax?: boolean;
+} = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -43,6 +52,8 @@ export default function WebGLBackground() {
       precision highp float;
       uniform vec2  uRes;
       uniform float uTime;
+      uniform float uIntensity;
+      uniform vec2  uShift;    // scroll + pointer parallax, in field units
 
       // Hash/noise/fbm: standard value-noise stack, cheap enough for a full-screen pass.
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -62,7 +73,7 @@ export default function WebGLBackground() {
 
       void main() {
         vec2 uv = gl_FragCoord.xy / uRes.xy;
-        vec2 p  = (gl_FragCoord.xy - 0.5 * uRes.xy) / uRes.y;
+        vec2 p  = (gl_FragCoord.xy - 0.5 * uRes.xy) / uRes.y + uShift;
 
         float t = uTime * 0.020;
 
@@ -75,27 +86,44 @@ export default function WebGLBackground() {
         float ridge = abs(f2 - 0.5);
         float glow  = smoothstep(0.16, 0.0, ridge) * 0.55;
 
-        // Sparse bright points, suggesting individual documents.
-        vec2  gp   = p * 9.0;
-        vec2  cell = floor(gp);
-        float rnd  = hash(cell);
-        vec2  cpos = fract(gp) - 0.5 - 0.30 * vec2(sin(t * 6.0 + rnd * 30.0), cos(t * 5.0 + rnd * 21.0));
-        float pt   = smoothstep(0.055, 0.0, length(cpos)) * step(0.955, rnd);
+        // A second, finer ridge set at a different scale and phase. Two scales of
+        // structure is what separates "a space" from "a texture" - the eye reads the
+        // interference between them as depth rather than as a repeating pattern.
+        float f3    = fbm(p * 7.3 + vec2(-t * 1.4, t * 1.1));
+        float fine  = smoothstep(0.085, 0.0, abs(f3 - 0.5)) * 0.22;
+
+        // Sparse bright points, suggesting individual documents. Three parallax layers:
+        // each is a different depth, so scrolling separates them.
+        float pt = 0.0;
+        for (int L = 0; L < 3; L++) {
+          float fl    = float(L);
+          float scale = 9.0 + fl * 7.0;
+          float depth = 1.0 - fl * 0.30;
+          vec2  gp    = p * scale + uShift * fl * 1.6;
+          vec2  cell  = floor(gp);
+          float rnd   = hash(cell + fl * 37.0);
+          vec2  cpos  = fract(gp) - 0.5
+                      - 0.30 * vec2(sin(t * 6.0 + rnd * 30.0), cos(t * 5.0 + rnd * 21.0));
+          pt += smoothstep(0.055 * depth, 0.0, length(cpos)) * step(0.955, rnd) * depth;
+        }
 
         // Deep navy base -> teal ridges -> a warm accent only on the brightest points,
         // so the accent colour stays rare and therefore meaningful.
         vec3 base   = vec3(0.024, 0.043, 0.078);
         vec3 teal   = vec3(0.106, 0.427, 0.478);
+        vec3 cyan   = vec3(0.180, 0.560, 0.620);
         vec3 accent = vec3(0.925, 0.510, 0.290);
 
         vec3 col = base;
         col = mix(col, teal, glow * (0.55 + 0.45 * f1));
+        col += cyan * fine * (0.5 + 0.5 * f1);
         col += accent * pt * 0.85;
 
         // Vignette keeps the centre calm so overlaid text stays legible.
         float vig = smoothstep(1.25, 0.25, length(uv - 0.5) * 1.6);
         col *= vig;
 
+        col = base + (col - base) * uIntensity;
         gl_FragColor = vec4(col, 1.0);
       }
     `;
@@ -130,6 +158,9 @@ export default function WebGLBackground() {
 
     const uRes = gl.getUniformLocation(prog, "uRes");
     const uTime = gl.getUniformLocation(prog, "uTime");
+    const uIntensity = gl.getUniformLocation(prog, "uIntensity");
+    const uShift = gl.getUniformLocation(prog, "uShift");
+    gl.uniform1f(uIntensity, intensity);
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const resize = () => {
@@ -146,7 +177,22 @@ export default function WebGLBackground() {
     let running = true;
     const start = performance.now();
 
+    // Parallax targets, eased toward each frame so neither scroll nor cursor snaps.
+    let targetX = 0, targetY = 0, curX = 0, curY = 0;
+    const onScroll = () => { targetY = -(window.scrollY / Math.max(window.innerHeight, 1)) * 0.22; };
+    const onPointer = (e: PointerEvent) => {
+      targetX = (e.clientX / window.innerWidth - 0.5) * 0.06;
+    };
+    if (parallax && !reduced) {
+      window.addEventListener("scroll", onScroll, { passive: true });
+      window.addEventListener("pointermove", onPointer, { passive: true });
+      onScroll();
+    }
+
     const draw = () => {
+      curX += (targetX - curX) * 0.05;
+      curY += (targetY - curY) * 0.05;
+      gl.uniform2f(uShift, curX, curY);
       gl.uniform1f(uTime, (performance.now() - start) / 1000);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       if (running && !reduced) raf = requestAnimationFrame(draw);
@@ -167,11 +213,13 @@ export default function WebGLBackground() {
       running = false;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("pointermove", onPointer);
       document.removeEventListener("visibilitychange", onVisibility);
       gl.deleteProgram(prog);
       gl.deleteBuffer(buf);
     };
-  }, []);
+  }, [intensity, parallax]);
 
   return (
     <canvas

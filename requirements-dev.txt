@@ -2,5 +2,11 @@
 numpy>=1.26
 scipy>=1.11
 requests>=2.31
+# TLS verification against the OS certificate store. Required on any machine running a
+# TLS-intercepting endpoint security product (Norton, Zscaler, corporate MITM proxies):
+# those re-sign every connection with a private root that lives in the Windows store and
+# NOT in certifi's bundle, so without this every HTTPS call fails CERTIFICATE_VERIFY_FAILED
+# while browsers on the same machine work fine. See oncolens.env.enable_system_trust_store.
+truststore>=0.9
 # Optional, for the Postgres/pgvector serving path:
 # psycopg[binary]>=3.1

@@ -325,6 +325,19 @@ class MedCPTBackend:
         #: Deliberately SMALLER than the CPU batch. See _encode: on a laptop whose GPU
         #: also drives the display, batch size controls whether the desktop stays
         #: responsive, and 128 froze the machine outright.
+        #:
+        #: MEASURED on an RTX 4070 (2026-08-02), warm, 1024 real passages:
+        #:
+        #:     batch  yield  passages/s  peak VRAM
+        #:        16   4 ms       247.5    0.60 GB
+        #:        32   4 ms       250.0    0.75 GB
+        #:       128   2 ms       271.5    1.67 GB
+        #:
+        #: So the responsiveness setting costs **under 10%**, not the ~30% recorded
+        #: earlier from the 4060. The reason is visible in the VRAM column: 1.67 GB of
+        #: 12.9 GB at batch 128 means the GPU is nowhere near saturated and throughput is
+        #: bound by CPU-side tokenisation, not by kernel occupancy. Raising the batch
+        #: buys almost nothing and risks the freeze, so the safe value stays the default.
         self.gpu_batch = gpu_batch
         #: Milliseconds to yield after each batch so the compositor can draw. 0 disables.
         self.yield_ms = yield_ms
@@ -376,13 +389,15 @@ class MedCPTBackend:
             tok, mod = self._a
 
         dev = self._device()
-        # BATCH SIZE IS A UI-RESPONSIVENESS SETTING ON A LAPTOP, NOT JUST A THROUGHPUT ONE.
+        # BATCH SIZE IS A UI-RESPONSIVENESS SETTING ON A DESKTOP GPU, NOT JUST A
+        # THROUGHPUT ONE.
         #
-        # This RTX 4060 also drives the display. A large batch launches a kernel that
+        # The GPU here also drives the display. A large batch launches a kernel that
         # occupies the GPU's shaders for long enough to starve the Windows compositor, and
         # the entire desktop freezes until it finishes — which is what happened at batch
-        # 128. Smaller batches yield to the compositor between launches. The throughput
-        # cost is modest; an unusable machine is not.
+        # 128 on an RTX 4060. Smaller batches yield to the compositor between launches.
+        # Measured cost of that safety on an RTX 4070: under 10% (see __init__). An
+        # unusable machine is not worth 10%.
         batch_size = self.gpu_batch if dev == "cuda" else self.batch
         out: list[np.ndarray] = []
         with torch.no_grad():

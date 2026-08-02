@@ -23,6 +23,49 @@ CANDIDATES = (".env.local", ".env")
 #: "[SENSITIVE]"') far from the actual cause, so they are treated as absent.
 REDACTED_MARKERS = frozenset({"[SENSITIVE]", "[REDACTED]", "***", "<redacted>"})
 
+_TRUST_STORE_INJECTED = False
+
+
+def enable_system_trust_store() -> bool:
+    """Verify TLS against the **OS** certificate store instead of certifi's bundle.
+
+    **Measured on a machine running Norton (2026-08-02).** Every outbound HTTPS request
+    failed — NCBI E-utilities and HuggingFace alike — with::
+
+        [SSL: CERTIFICATE_VERIFY_FAILED] Basic Constraints of CA cert not marked critical
+
+    That error is not a broken server. It is the signature of a TLS-intercepting endpoint
+    security product: it terminates the connection, re-signs it with its own root CA, and
+    installs that root into the **Windows** certificate store. Python does not read that
+    store — ``requests``/``httpx`` verify against the ``certifi`` bundle, which has never
+    heard of Norton — so every request fails while every browser on the same machine
+    works.
+
+    ⚠️ This corrects an environment fact recorded in CLAUDE.md. "curl is blocked, Python
+    ``requests`` is not" held on the previous machine; here ``requests`` fails too, and
+    concluding "no network" from that would be the same mistake in a new coat. The network
+    is fine — the trust root is the problem.
+
+    ``truststore`` delegates verification to the platform (SChannel on Windows), which
+    *does* have the intercepting root, so certificates validate properly. This is not
+    ``verify=False``: chain validation still happens, against the store the machine's own
+    administrator controls.
+
+    Returns True if injection happened or had already happened, False if ``truststore``
+    is not installed — in which case nothing is changed and the caller sees the ordinary
+    certifi behaviour.
+    """
+    global _TRUST_STORE_INJECTED
+    if _TRUST_STORE_INJECTED:
+        return True
+    try:
+        import truststore
+    except ImportError:
+        return False
+    truststore.inject_into_ssl()
+    _TRUST_STORE_INJECTED = True
+    return True
+
 
 def load_env(root: Path | None = None, *, override: bool = False) -> dict[str, str]:
     """Read `.env.local` (or `.env`) into ``os.environ``. Returns what was loaded.
@@ -30,6 +73,11 @@ def load_env(root: Path | None = None, *, override: bool = False) -> dict[str, s
     Values may be quoted and may contain ``=`` (Postgres DSNs routinely do), so the split
     is on the *first* ``=`` only and surrounding quotes are stripped.
     """
+    # Done here because every script calls load_env() before its first request, and the
+    # alternative is remembering to call it in fifteen entry points. It is a no-op when
+    # truststore is absent or the platform store is already in use.
+    enable_system_trust_store()
+
     root = root or Path(__file__).resolve().parents[2]
     loaded: dict[str, str] = {}
     for name in CANDIDATES:

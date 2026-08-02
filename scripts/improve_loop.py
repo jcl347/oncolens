@@ -57,7 +57,7 @@ from oncolens.eval import metrics as M  # noqa: E402
 from oncolens.eval.citation_labels import assert_source_excluded  # noqa: E402
 from oncolens.eval.stats import compare  # noqa: E402
 from oncolens.eval.weighting import (  # noqa: E402
-    PRIMARY_METRIC, SECONDARY_METRICS, STRATUM_WEIGHTS, describe,
+    PRIMARY_METRIC, SECONDARY_METRICS, STRATUM_WEIGHTS, describe, gate_metric,
 )
 from oncolens.retrieval.dense import make_backend  # noqa: E402
 from oncolens.retrieval.fusion import aggregate_chunks_to_docs, reciprocal_rank_fusion  # noqa: E402
@@ -380,56 +380,152 @@ class Verdict:
     regressions: list = field(default_factory=list)
 
 
-def judge(name: str, base: dict, cand: dict, stratum: str = "claim") -> Verdict:
+@dataclass
+class Measurement:
+    """Numbers only. The decision is taken later, once every candidate has been run."""
+    name: str
+    deltas: dict = field(default_factory=dict)
+    gate: str = "mrr"
+    gate_p: float = 1.0
+    gate_delta: float = 0.0
+    unjudged_delta: float = 0.0
+    no_effect: bool = False
+    regressions: list = field(default_factory=list)
+
+
+def measure(name: str, base: dict, cand: dict, stratum: str = "claim") -> Measurement:
+    """Compute every panel metric for one candidate WITHOUT deciding anything.
+
+    Separating measurement from judgement is what makes the multiplicity correction
+    below possible: Holm needs the whole family of p-values in hand at once, and a
+    function that decides as it goes cannot supply that.
+    """
     # Each stratum is gated on the metric that matches ITS task. A synthesis question is
     # answered by a set, so coverage is what counts and reciprocal rank is close to
     # meaningless - handing back the single best paper out of nine is not a good answer
     # to "what is known about X". An identifier lookup is the opposite.
+    #
+    # gate_metric(), NOT PRIMARY_METRIC: for a reordering-only candidate the two differ,
+    # and calling PRIMARY_METRIC directly is what made `rerank_llm` structurally
+    # unpassable on synthesis (recall@20 cannot move when only the order changes). The
+    # fix for that was written into weighting.py and then never called from here.
+    gate = gate_metric(stratum, name)
     primary = PRIMARY_METRIC.get(stratum, "mrr")
     panel = tuple(dict.fromkeys(
-        (primary,) + SECONDARY_METRICS.get(stratum, ()) + M.CONSENSUS_METRICS))
-    alpha = ALPHA / max(len(panel), 1)          # Bonferroni WITHIN this iteration
-    wins, regs, deltas = [], [], {}
+        (gate, primary) + SECONDARY_METRICS.get(stratum, ()) + M.CONSENSUS_METRICS))
+
+    m = Measurement(name=name, gate=gate)
     for metric in panel:
         c = compare(base, cand, metric)
         if c is None:
             continue
-        deltas[metric] = {"delta": c.delta, "p": c.p_value,
-                          "ci": [c.ci_low, c.ci_high], "n": c.n_queries}
-        if c.p_value < alpha and c.delta > MIN_EFFECT:
-            wins.append(metric)
-        elif c.p_value < alpha and c.delta < -MIN_EFFECT:
-            regs.append(metric)
+        m.deltas[metric] = {"delta": c.delta, "p": c.p_value,
+                            "ci": [c.ci_low, c.ci_high], "n": c.n_queries}
+        if metric == gate:
+            m.gate_p, m.gate_delta = c.p_value, c.delta
+        # A REGRESSION veto is tested UNCORRECTED. Correction exists to stop false
+        # positives; here a false positive means "we refused a change", which is the
+        # safe direction. Making the safety check harder to trip would be backwards.
+        if c.p_value < ALPHA and c.delta < -MIN_EFFECT:
+            m.regressions.append(metric)
 
     # A candidate whose rankings are identical to the baseline did not run. Reporting
     # that as "no significant improvement" hides a broken candidate behind a plausible
     # negative result — which is exactly how a loop launders its own bugs into findings.
     identical = sum(1 for q in base
                     if base[q].get("_ranking_hash") == cand.get(q, {}).get("_ranking_hash"))
-    if identical == len(base) and base:
-        return Verdict(name, False,
-                       "NO EFFECT — rankings byte-identical to baseline; the candidate "
-                       "did not fire (check that its config is actually wired through)",
-                       {}, [], [])
+    m.no_effect = bool(base) and identical == len(base)
 
     unj_base, unj_cand = mean_of(base, "unjudged@10"), mean_of(cand, "unjudged@10")
-    unj_delta = unj_cand - unj_base
-    deltas["unjudged@10"] = {"delta": unj_delta, "p": None, "ci": None, "n": None}
+    m.unjudged_delta = unj_cand - unj_base
+    m.deltas["unjudged@10"] = {"delta": m.unjudged_delta, "p": None, "ci": None, "n": None}
+    return m
 
-    if len(regs) > MAX_REGRESSING_METRICS:
-        return Verdict(name, False,
-                       f"significant regression on {', '.join(regs)}", deltas, wins, regs)
-    if len(wins) < MIN_WINNING_METRICS:
-        return Verdict(name, False,
-                       f"only {len(wins)} of {len(panel)} consensus metrics improved "
-                       f"significantly (need {MIN_WINNING_METRICS})", deltas, wins, regs)
-    if unj_delta > UNJUDGED_TOLERANCE:
-        return Verdict(name, False,
-                       f"unjudged@10 rose {unj_delta:+.3f}: the gain may be an artifact of "
-                       f"returning documents the pool never judged", deltas, wins, regs)
-    return Verdict(name, True,
-                   f"{len(wins)} metrics improved ({', '.join(wins)}), no regressions",
-                   deltas, wins, regs)
+
+def holm_gate(measurements: list[Measurement], stratum: str = "claim") -> list[Verdict]:
+    """Decide promotion, correcting across CANDIDATES rather than across metrics.
+
+    **The correction was being applied to the wrong family, and it cost real power.**
+    The previous gate divided alpha by the size of the reported metric panel — 5 to 8
+    metrics depending on stratum. But at 1.10 judged documents per query almost every
+    query has exactly one relevant document, and when there is one relevant document at
+    rank ``r``::
+
+        mrr = 1/r     success@k = 1[r <= k]     ndcg@10 = 1/log2(r+1)
+
+    Every one of those is a deterministic function of the same number. They are not
+    independent tests; they are five thresholdings of one rank distribution. Bonferroni
+    assumes independence, so correcting across them controls nothing real while inflating
+    the minimum detectable effect. MEASURED on this harness:
+
+        stratum      panel  MDE@.05   MDE@gate   extra queries needed
+        synthesis        8   0.0569     0.0727                  1.63x
+        concept          6   0.0622     0.0772                  1.54x
+        identifier       5   0.1257     0.1533                  1.49x
+
+    That overhead lands on a harness already documented as underpowered — which is the
+    worst possible place to spend it.
+
+    **What the real family is.** One pre-registered gate metric per stratum, tested once
+    per candidate. The multiplicity that genuinely needs controlling is the number of
+    CANDIDATES tried in an iteration, because that is how many chances the loop takes at
+    a false positive. So: Holm across candidates on the gate metric. Holm is uniformly
+    more powerful than Bonferroni and controls the same family-wise error rate, so there
+    is no reason to prefer plain Bonferroni here.
+
+    Secondary metrics keep their job: they are reported, and a significant regression on
+    any of them still vetoes (uncorrected — see ``measure``).
+    """
+    live = [m for m in measurements if not m.no_effect]
+    # Holm: sort ascending by p, compare p_(i) against alpha / (k - i).
+    order = sorted(range(len(live)), key=lambda i: live[i].gate_p)
+    k = len(live)
+    passed_holm: set[str] = set()
+    for rank, idx in enumerate(order):
+        thresh = ALPHA / max(k - rank, 1)
+        if live[idx].gate_p < thresh:
+            passed_holm.add(live[idx].name)
+        else:
+            break          # Holm stops at the first failure; all larger p also fail
+
+    out: list[Verdict] = []
+    for m in measurements:
+        if m.no_effect:
+            out.append(Verdict(m.name, False,
+                               "NO EFFECT — rankings byte-identical to baseline; the "
+                               "candidate did not fire (check that its config is "
+                               "actually wired through)", m.deltas, [], []))
+            continue
+        wins = [k2 for k2, v in m.deltas.items()
+                if v.get("p") is not None and v["p"] < ALPHA and v["delta"] > MIN_EFFECT]
+        if m.regressions:
+            out.append(Verdict(m.name, False,
+                               f"significant regression on {', '.join(m.regressions)}",
+                               m.deltas, wins, m.regressions))
+            continue
+        if m.gate_delta <= MIN_EFFECT:
+            out.append(Verdict(m.name, False,
+                               f"{m.gate} moved {m.gate_delta:+.4f}, below the "
+                               f"{MIN_EFFECT} worth the complexity",
+                               m.deltas, wins, m.regressions))
+            continue
+        if m.name not in passed_holm:
+            out.append(Verdict(m.name, False,
+                               f"{m.gate} {m.gate_delta:+.4f} p={m.gate_p:.4f} did not "
+                               f"survive Holm across {k} candidates",
+                               m.deltas, wins, m.regressions))
+            continue
+        if m.unjudged_delta > UNJUDGED_TOLERANCE:
+            out.append(Verdict(m.name, False,
+                               f"unjudged@10 rose {m.unjudged_delta:+.3f}: the gain may "
+                               f"be an artifact of returning documents the pool never "
+                               f"judged", m.deltas, wins, m.regressions))
+            continue
+        out.append(Verdict(m.name, True,
+                           f"{m.gate} {m.gate_delta:+.4f} (p={m.gate_p:.4f}, Holm over "
+                           f"{k} candidates), no regressions",
+                           m.deltas, wins, m.regressions))
+    return out
 
 
 def main() -> int:
@@ -488,7 +584,11 @@ def main() -> int:
         print("\nnothing to run; pass --run NAME or --run-all")
         return 0
 
+    # PHASE 1 — measure every candidate. No decisions yet: Holm needs the whole family of
+    # gate p-values before it can threshold any of them.
     ledger: list[Verdict] = []
+    measurements: list[Measurement] = []
+    cand_runs: dict[str, dict] = {}
     for name in names:
         c = CANDIDATES_BY_NAME.get(name)
         if c is None:
@@ -501,20 +601,33 @@ def main() -> int:
             print(f"  FAILED to run: {type(e).__name__}: {str(e)[:140]}")
             ledger.append(Verdict(name, False, f"run error: {type(e).__name__}"))
             continue
-        v = judge(name, base, cand, args.stratum)
-        ledger.append(v)
-        primary = PRIMARY_METRIC.get(args.stratum, "mrr")
-        for m in dict.fromkeys((primary,) + SECONDARY_METRICS.get(args.stratum, ())
-                               + M.CONSENSUS_METRICS):
-            d = v.deltas.get(m)
-            if not d:
+        cand_runs[name] = cand
+        m = measure(name, base, cand, args.stratum)
+        measurements.append(m)
+        print(f"  gate metric: {m.gate}   delta {m.gate_delta:+.4f}  p={m.gate_p:.4f}")
+
+    # PHASE 2 — decide, correcting across candidates.
+    verdicts = holm_gate(measurements, args.stratum)
+    for v in verdicts:
+        c = CANDIDATES_BY_NAME.get(v.name)
+        cand = cand_runs.get(v.name, {})
+        m = next((x for x in measurements if x.name == v.name), None)
+        print(f"\n=== {v.name} — {c.description if c else ''} ===")
+        gate = m.gate if m else PRIMARY_METRIC.get(args.stratum, "mrr")
+        for metric in dict.fromkeys((gate, PRIMARY_METRIC.get(args.stratum, "mrr"))
+                                    + SECONDARY_METRICS.get(args.stratum, ())
+                                    + M.CONSENSUS_METRICS):
+            d = v.deltas.get(metric)
+            if not d or d.get("p") is None:
                 continue
-            flag = "WIN " if m in v.wins else ("REG " if m in v.regressions else "    ")
-            star = "*" if m == primary else " "
-            print(f"  {flag}{star}{m:<12}{mean_of(base,m):>8.4f} -> {mean_of(cand,m):>8.4f}"
-                  f"  ({d['delta']:+.4f}, p={d['p']:.4f})")
-        print(f"  unjudged@10 {v.deltas['unjudged@10']['delta']:+.4f}")
+            flag = "WIN " if metric in v.wins else ("REG " if metric in v.regressions else "    ")
+            star = "*" if metric == gate else " "
+            print(f"  {flag}{star}{metric:<12}{mean_of(base,metric):>8.4f} -> "
+                  f"{mean_of(cand,metric):>8.4f}  ({d['delta']:+.4f}, p={d['p']:.4f})")
+        if "unjudged@10" in v.deltas:
+            print(f"  unjudged@10 {v.deltas['unjudged@10']['delta']:+.4f}")
         print(f"  -> {'PROMOTE' if v.promoted else 'DISCARD'}: {v.reason}")
+    ledger.extend(verdicts)
 
     out = local_data_dir() / "improve_ledger.json"
     prior = []

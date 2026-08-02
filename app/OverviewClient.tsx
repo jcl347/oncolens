@@ -1,6 +1,7 @@
 "use client";
 
 import ClusterMap from "../components/ClusterMap";
+import WebGLBackground from "../components/WebGLBackground";
 
 type Metric = {
   label: string; value: number | string; unit?: string; note?: string;
@@ -65,8 +66,13 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
   const retrieval = stages.find((s) => s.id === "retrieval");
 
   return (
-    <div className="min-h-screen bg-[#05070c] text-slate-200">
-      <main className="mx-auto max-w-4xl px-6 pb-32">
+    <div className="relative min-h-screen bg-[#05070c] text-slate-200">
+      {/* Held at 0.55 intensity: this page is long-form reading, and the field must sit
+          under the prose rather than beside it. Parallax gives the scroll depth without
+          adding motion in the reader's focal area. */}
+      <WebGLBackground intensity={0.55} parallax />
+
+      <main className="relative mx-auto max-w-4xl px-6 pb-32">
         {/* ---------- what this is ---------- */}
         <header className="border-b border-white/8 py-16">
           <h1 className="text-3xl font-medium leading-tight text-white sm:text-4xl">

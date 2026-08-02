@@ -199,8 +199,16 @@ def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
     titles = {r["doc_id"]: r["title"] for r in top["results"]}
     years = {r["doc_id"]: r.get("year") for r in top["results"]}
     if not docs:
-        return {"query": query, "aspects": list(keys), "doc_ids": [], "coverage": 0.0,
-                "cells": {}, "titles": {}, "years": {},
+        # SAME SHAPE as the success path. This branch previously returned `list(keys)` —
+        # a list of strings — where the success path returns {key,label,numeric} objects,
+        # so the field's type depended on whether anything matched. A client written
+        # against one branch is broken by the other, and the empty case is exactly the one
+        # nobody exercises by hand.
+        return {"query": query,
+                "aspects": [{"key": a.key, "label": a.label, "numeric": a.numeric}
+                            for a in aspects],
+                "doc_ids": [], "coverage": 0.0,
+                "cells": {}, "titles": {}, "years": {}, "source": "neon",
                 "notes": ["no documents matched the query"]}
 
     conn = index.conn()

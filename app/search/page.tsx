@@ -15,8 +15,26 @@ type Result = {
   doc_id: string; title: string; doc_type: string; year: number | null;
   meta: Record<string, any>; score: number; passage: Passage;
 };
-type Cell = { doc_id: string; aspect: string; reported: boolean; passage: string; section: string; start_char: number; end_char: number; aspect_strength: number };
-type Comparison = { query: string; aspects: string[]; doc_ids: string[]; coverage: number; notes: string[]; cells: Record<string, Record<string, Cell>> };
+/**
+ * These mirror `oncolens.serve.live_query.compare` EXACTLY.
+ *
+ * They previously did not, and the whole comparison view was dead: `aspects` was typed as
+ * `string[]` when the API sends `{key,label,numeric}` objects (React throws "Objects are
+ * not valid as a React child" on render), and `cells` was typed as a nested
+ * `Record<doc, Record<aspect, Cell>>` when the API sends ONE flat map keyed `doc|aspect`,
+ * so every lookup returned undefined and every cell rendered "not reported". A response
+ * shape is an interface; drifting from it silently produces a UI that is confidently wrong.
+ */
+type Aspect = { key: string; label: string; numeric: boolean };
+type Cell = {
+  reported: boolean; chunk_id?: string; section?: string;
+  start_char?: number; end_char?: number; text?: string | null; score?: number;
+};
+type Comparison = {
+  query: string; aspects: Aspect[]; doc_ids: string[];
+  titles: Record<string, string>; years: Record<string, number | null>;
+  coverage: number; notes: string[]; cells: Record<string, Cell>;
+};
 type EvalReport = any;
 
 /* ------------------------------------------------------- highlighting */
@@ -201,16 +219,26 @@ function ResultCard({ rank, result, onOpen }: { rank: number; result: Result; on
   const clause = result.passage.best_clause;
   return (
     <article className="rounded-xl border border-edge bg-surface p-5 backdrop-blur-md transition hover:border-teal/30">
-      <div className="flex items-baseline gap-3">
-        <span className="font-mono text-xs text-slate-500">{String(rank).padStart(2, "0")}</span>
-        <h3 className="flex-1 text-[15px] font-medium leading-snug text-slate-100">{result.title}</h3>
-        <span className="font-mono text-xs text-teal">{result.score.toFixed(3)}</span>
+      {/* The TITLE is the primary object on this card. A researcher scans a result list by
+          title, not by rank or score, so it gets the type scale and the score is demoted to
+          a quiet monospace tag rather than competing with it at the same weight. */}
+      <div className="flex items-start gap-3">
+        <span className="mt-1 font-mono text-xs text-slate-600">{String(rank).padStart(2, "0")}</span>
+        <h3 className="flex-1 text-[17px] font-semibold leading-snug tracking-[-0.01em] text-white">
+          {result.title}
+        </h3>
+        <span
+          className="mt-0.5 shrink-0 rounded bg-teal/10 px-1.5 py-0.5 font-mono text-[10px] text-teal/80"
+          title="fusion score"
+        >
+          {result.score.toFixed(3)}
+        </span>
       </div>
 
-      <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-8 text-[11px] text-slate-500">
+      <div className="mt-2 flex flex-wrap items-center gap-2 pl-8 text-[11px] text-slate-500">
         <span className="rounded bg-white/5 px-1.5 py-0.5">{result.doc_type}</span>
         {result.year && <span>{result.year}</span>}
-        {result.meta?.journal && <span className="italic">{result.meta.journal}</span>}
+        {result.meta?.journal && <span className="italic text-slate-400">{result.meta.journal}</span>}
         {result.meta?.pmid && (
           <a
             href={`https://pubmed.ncbi.nlm.nih.gov/${result.meta.pmid}/`}
@@ -310,12 +338,14 @@ function PaperViewer({ result, onClose }: { result: Result; onClose: () => void 
 /* --------------------------------------------------- comparison grid */
 
 function ComparisonGrid({ data }: { data: Comparison }) {
+  const pmidOf = (doc: string) => doc.replace(/^PAPER:PMID/, "");
   return (
     <section className="mt-8 rounded-xl border border-edge bg-surface p-5 backdrop-blur-md">
       <div className="mb-4 flex items-baseline gap-3">
         <h2 className="text-sm font-medium text-slate-200">Technical comparison</h2>
         <span className="text-xs text-slate-500">
-          {data.doc_ids.length} papers × {data.aspects.length} dimensions · {(data.coverage * 100).toFixed(0)}% of cells evidenced
+          {data.doc_ids.length} papers × {data.aspects.length} dimensions ·{" "}
+          {(data.coverage * 100).toFixed(0)}% of cells evidenced
         </span>
       </div>
 
@@ -327,23 +357,48 @@ function ComparisonGrid({ data }: { data: Comparison }) {
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="border-b border-edge">
-              <th className="p-2 text-left font-medium text-slate-400">Paper</th>
+              <th className="w-[22rem] p-2 text-left font-medium text-slate-400">Paper</th>
               {data.aspects.map((a) => (
-                <th key={a} className="p-2 text-left font-medium capitalize text-slate-400">{a}</th>
+                <th key={a.key} className="p-2 text-left font-medium text-slate-400">
+                  {a.label}
+                  {a.numeric && (
+                    <span className="ml-1 font-normal text-slate-600" title="requires a number in the passage">
+                      #
+                    </span>
+                  )}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.doc_ids.map((doc) => (
               <tr key={doc} className="border-b border-edge/50 align-top">
-                <td className="max-w-[9rem] p-2 font-mono text-[11px] text-teal">{doc}</td>
+                {/* The TITLE is what a researcher recognises a paper by. The doc_id is an
+                    internal key and was previously all this column showed. */}
+                <td className="w-[22rem] p-2 pr-4">
+                  <span className="block text-[13px] font-medium leading-snug text-slate-100">
+                    {data.titles?.[doc] || doc}
+                  </span>
+                  <span className="mt-1 block text-[10px] text-slate-500">
+                    {data.years?.[doc] ?? "—"} ·{" "}
+                    <a
+                      href={`https://pubmed.ncbi.nlm.nih.gov/${pmidOf(doc)}/`}
+                      target="_blank" rel="noreferrer"
+                      className="font-mono text-teal hover:underline"
+                    >
+                      PMID {pmidOf(doc)}
+                    </a>
+                  </span>
+                </td>
                 {data.aspects.map((a) => {
-                  const cell = data.cells[doc]?.[a];
+                  // ONE flat map keyed `doc|aspect` — matching the API. The nested lookup
+                  // this replaced silently missed every cell.
+                  const cell = data.cells[`${doc}|${a.key}`];
                   return (
-                    <td key={a} className="max-w-xs p-2">
-                      {cell?.reported ? (
+                    <td key={a.key} className="max-w-xs p-2">
+                      {cell?.reported && cell.text ? (
                         <>
-                          <span className="text-slate-300">{cell.passage.slice(0, 170)}…</span>
+                          <span className="text-slate-300">{cell.text.slice(0, 170)}…</span>
                           <span className="mt-1 block font-mono text-[10px] text-slate-600">
                             {cell.section} {cell.start_char}–{cell.end_char}
                           </span>

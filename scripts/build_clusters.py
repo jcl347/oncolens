@@ -129,6 +129,66 @@ def kmeans(X: np.ndarray, k: int, iters: int = 60, seed: int = 7):
     return labels, C
 
 
+def variance_captured(Xc: np.ndarray, W: np.ndarray) -> float:
+    """Fraction of total variance retained by projecting onto orthonormal rows of ``W``.
+
+    Works for any orthonormal basis, not just the leading PCA axes, so the discriminant
+    projection below can be reported on the same scale as the PCA one.
+    """
+    num = float(np.sum((Xc @ W.T) ** 2))
+    den = float(np.sum(Xc ** 2))
+    return num / den if den else 0.0
+
+
+def between_cluster_ratio(Xc: np.ndarray, labels: np.ndarray) -> float:
+    """BSS/TSS — how much of the total variance the CLUSTER ASSIGNMENT accounts for.
+
+    This is the number people think "explained variance" means when they look at a cluster
+    map, and it is not the projection's number. The projection can only ever show a shadow
+    of the space; this says how much real structure the partition itself captures,
+    independent of any picture.
+    """
+    tss = float(np.sum(Xc ** 2))
+    if not tss:
+        return 0.0
+    bss = 0.0
+    for j in np.unique(labels):
+        members = Xc[labels == j]
+        bss += len(members) * float(np.sum(members.mean(axis=0) ** 2))
+    return bss / tss
+
+
+def discriminant_axes(Xc: np.ndarray, labels: np.ndarray, n_axes: int = 3) -> np.ndarray:
+    """Orthonormal axes maximising BETWEEN-cluster spread, not total spread.
+
+    **Why this is offered alongside plain PCA, and why it is still honest.** PCA picks the
+    directions of greatest total variance, which in a 192-dimensional embedding space is
+    dominated by within-cluster spread — hence only ~14% in two dimensions, and a picture
+    where real research areas overlap into a blob. Running PCA on the *cluster centroids*
+    instead picks the plane in which the clusters are furthest apart.
+
+    This is a **linear** map, exactly like plain PCA: a rotation and projection of the same
+    space, so relative distances remain a true shadow rather than a warped one. That is the
+    difference from t-SNE, which reshapes local neighbourhoods and makes distances and
+    cluster sizes meaningless.
+
+    It is not free of choice, though: these axes are selected *after* seeing the cluster
+    labels, so they show the partition at its most flattering. That is a camera angle, not
+    an invention — and it is why the total-variance figure is still reported for this
+    projection, and why the UI labels which projection it is showing.
+    """
+    cents = []
+    weights = []
+    for j in np.unique(labels):
+        members = Xc[labels == j]
+        cents.append(members.mean(axis=0))
+        weights.append(len(members))
+    Cm = np.asarray(cents) * np.sqrt(np.asarray(weights))[:, None]
+    # Centroids already live in the centred space, so no second centring.
+    _, _, Vt = np.linalg.svd(Cm, full_matrices=False)
+    return Vt[:n_axes]
+
+
 def distinctive_terms(members: list[str], majors: dict[str, list[str]],
                       global_counts: Counter, total_docs: int, top: int = 4) -> list[str]:
     """Terms common INSIDE the cluster and rare outside it.
@@ -170,14 +230,37 @@ def main() -> int:
 
     labels, C = kmeans(Xk, args.k)
 
-    # PCA to 2-D. Linear, so distances on the map mean something.
+    # ---- projections -------------------------------------------------------
+    # Both are LINEAR maps of the same space, so distances stay comparable. Three
+    # dimensions rather than two because the third axis is free structure: it costs one
+    # float per point and recovers variance that a flat map simply discards.
     Xc = Xk - Xk.mean(axis=0)
-    U, S, Vt = np.linalg.svd(Xc, full_matrices=False)
-    coords = Xc @ Vt[:2].T
-    explained = float((S[:2] ** 2).sum() / (S ** 2).sum())
-    lo, hi = coords.min(axis=0), coords.max(axis=0)
-    span = np.where(hi - lo == 0, 1, hi - lo)
-    norm = (coords - lo) / span * 2 - 1        # -> [-1, 1]
+    _, S, Vt = np.linalg.svd(Xc, full_matrices=False)
+
+    pca_axes3 = Vt[:3]
+    disc_axes3 = discriminant_axes(Xc, labels, n_axes=3)
+
+    def project(W: np.ndarray) -> np.ndarray:
+        c = Xc @ W.T
+        lo, hi = c.min(axis=0), c.max(axis=0)
+        span = np.where(hi - lo == 0, 1, hi - lo)
+        return (c - lo) / span * 2 - 1          # -> [-1, 1] per axis
+
+    norm = project(pca_axes3)
+    norm_disc = project(disc_axes3)
+
+    var_pca2 = float((S[:2] ** 2).sum() / (S ** 2).sum())
+    var_pca3 = float((S[:3] ** 2).sum() / (S ** 2).sum())
+    var_disc3 = variance_captured(Xc, disc_axes3)
+    bss = between_cluster_ratio(Xc, labels)
+    # How much of the SEPARATION BETWEEN CLUSTERS each projection preserves — the
+    # question the map is actually asked, and the one plain total-variance understates.
+    cent = np.vstack([Xc[labels == j].mean(axis=0) for j in np.unique(labels)])
+    w = np.array([(labels == j).sum() for j in np.unique(labels)], dtype=float)
+    bss_total = float(np.sum(w[:, None] * cent ** 2))
+    bss_pca = float(np.sum(w[:, None] * (cent @ pca_axes3.T) ** 2)) / (bss_total or 1)
+    bss_disc = float(np.sum(w[:, None] * (cent @ disc_axes3.T) ** 2)) / (bss_total or 1)
+    explained = var_pca3
 
     global_counts = Counter()
     for d in ids:
@@ -192,6 +275,7 @@ def main() -> int:
         terms = distinctive_terms([m["doc_id"] for m in members], majors,
                                   global_counts, len(docs))
         centroid = norm[labels == j].mean(axis=0)
+        centroid_d = norm_disc[labels == j].mean(axis=0)
         # Representative papers: closest to the centroid in the ORIGINAL space, not the
         # projection — the projection is for display, not for deciding what is typical.
         sims = Xk[labels == j] @ C[j]
@@ -203,6 +287,10 @@ def main() -> int:
             "size": len(members),
             "x": round(float(centroid[0]), 4),
             "y": round(float(centroid[1]), 4),
+            "z": round(float(centroid[2]), 4),
+            "dx": round(float(centroid_d[0]), 4),
+            "dy": round(float(centroid_d[1]), 4),
+            "dz": round(float(centroid_d[2]), 4),
             "papers": [{
                 "doc_id": members[i]["doc_id"], "title": members[i]["title"][:140],
                 "year": members[i]["year"], "pmid": members[i]["pmid"],
@@ -212,17 +300,39 @@ def main() -> int:
     clusters.sort(key=lambda c: -c["size"])
 
     points = [{"x": round(float(norm[i][0]), 4), "y": round(float(norm[i][1]), 4),
+               "z": round(float(norm[i][2]), 4),
+               "dx": round(float(norm_disc[i][0]), 4),
+               "dy": round(float(norm_disc[i][1]), 4),
+               "dz": round(float(norm_disc[i][2]), 4),
                "c": int(labels[i])} for i in range(len(docs_k))]
 
-    payload = {"k": args.k, "n_documents": len(docs_k),
-               "explained_variance": round(explained, 4),
-               "projection": "PCA (linear — distances are comparable, unlike t-SNE/UMAP)",
-               "clusters": clusters, "points": points}
+    payload = {
+        "k": args.k, "n_documents": len(docs_k),
+        # Kept for backwards compatibility with anything reading the old key.
+        "explained_variance": round(explained, 4),
+        "variance": {
+            "pca_2d": round(var_pca2, 4),
+            "pca_3d": round(var_pca3, 4),
+            "discriminant_3d": round(var_disc3, 4),
+            "cluster_bss": round(bss, 4),
+            "between_cluster_kept_pca": round(bss_pca, 4),
+            "between_cluster_kept_discriminant": round(bss_disc, 4),
+            "source_dim": int(Xk.shape[1]),
+        },
+        "projection": "PCA (linear — distances are comparable, unlike t-SNE/UMAP)",
+        "clusters": clusters, "points": points,
+    }
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload), encoding="utf-8")
 
-    print(f"\n2-D projection explains {explained:.1%} of variance")
+    print(f"\nVARIANCE (source space {Xk.shape[1]}-dim)")
+    print(f"  PCA 2-D                          {var_pca2:>7.1%}")
+    print(f"  PCA 3-D                          {var_pca3:>7.1%}   <- third axis is free structure")
+    print(f"  discriminant 3-D                 {var_disc3:>7.1%}")
+    print(f"  cluster assignment (BSS/TSS)     {bss:>7.1%}   <- what the PARTITION captures")
+    print(f"  between-cluster kept, PCA        {bss_pca:>7.1%}")
+    print(f"  between-cluster kept, discrim.   {bss_disc:>7.1%}   <- what the map is asked to show")
     print(f"\n{'size':>6}  cluster label / distinctive MeSH terms")
     print("-" * 76)
     for c in clusters:

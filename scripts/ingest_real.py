@@ -106,6 +106,12 @@ def main() -> int:
                          "harmful (bm25 alone beat lsa+bm25). Default changed accordingly.")
     ap.add_argument("--no-blob", action="store_true",
                     help="skip Blob upload even if a token is present")
+    ap.add_argument("--require-full-text", action="store_true",
+                    help="index ONLY documents whose PMC full text was retrieved. An "
+                         "abstract-only record has no passages to locate a concept in — "
+                         "the whole record IS the summary — and it drags every "
+                         "corpus-level statistic toward a document shape this product "
+                         "does not serve. See scripts/prune_abstract_only.py.")
     args = ap.parse_args()
 
     # Read .env.local directly rather than requiring the caller to source it — the
@@ -175,7 +181,16 @@ def main() -> int:
     fetch_errors = 0
     for i, rec in enumerate(records):
         doc = rec.to_corpus_doc()          # abstract + real MeSH descriptors
-        pmcid = pmc_map.get(rec.pmid)
+        # FALL BACK TO THE RECORD'S OWN PMCID WHEN THE CONVERTER HAS NO ENTRY.
+        #
+        # Relying on the ID converter alone silently skipped the fetch entirely for
+        # articles PubMed itself knows are in PMC: `meta.pmcid` was written from the
+        # PubMed record while no full text was ever requested, producing documents that
+        # look like "full text unavailable" when it was merely never asked for. Measured
+        # on the live corpus: 14 of 24 sampled such documents were fully retrievable,
+        # extrapolating to ~134 articles. The converter is a convenience, not the
+        # authority — PubMed's own ArticleIdList is.
+        pmcid = pubmed.normalise_pmcid(pmc_map.get(rec.pmid)) or rec.pmcid
         if pmcid:
             try:
                 meta = pmc_cloud.fetch_metadata(pmcid, 1)
@@ -212,6 +227,22 @@ def main() -> int:
     print(f"  {full} documents with REAL full text; {skipped_licence} skipped by the "
           f"'{args.license_policy}' licence policy; {no_text} had no text rendition; "
           f"{fetch_errors} fetch errors (abstract retained)")
+    # A metadata object that simply does not exist in the OA bucket was previously
+    # counted in NO bucket at all — the `if meta:` arm just fell through — so the tallies
+    # above did not add up to the number attempted and the gap was invisible. Name it.
+    attempted = sum(1 for r in records if pmc_map.get(r.pmid) or r.pmcid)
+    unexplained = attempted - full - skipped_licence - no_text - fetch_errors
+    if unexplained > 0:
+        print(f"  {unexplained} had a PMCID but NO metadata object in the OA bucket "
+              f"(not open-access; nothing to fetch)")
+
+    if args.require_full_text:
+        before = len(docs)
+        docs = [d for d in docs if any(s["name"] == "Body" for s in d["sections"])]
+        print(f"  --require-full-text: keeping {len(docs)} of {before} documents")
+        if not docs:
+            print("nothing to index.")
+            return 0
 
     chunks = chunk_corpus(docs)
     print(f"chunked into {len(chunks)} passages "

@@ -40,6 +40,21 @@ def cmd_validate() -> int:
     for k, v in ds.integrity.items():
         print(f"  {k:<28} {v}")
 
+    # An empty corpus is the normal state of a fresh clone: data/ is reserved for real
+    # ingested content and ships empty. Say so plainly instead of crashing later on an
+    # index error deep inside the chunking stats.
+    if not ds.docs:
+        print()
+        print("No corpus found. `data/` is empty by design - it holds real ingested data,")
+        print("which is never committed. Either:")
+        print()
+        print("  # 1. ingest real papers (needs network; see docs/VERCEL_SETUP.md)")
+        print("  python scripts/ingest_real.py --max-papers 500 --email you@org.edu")
+        print()
+        print("  # 2. or run against the synthetic test fixture (NOT real data)")
+        print("  ONCOLENS_DATA=fixtures/synthetic python scripts/run.py validate")
+        return 1
+
     problems: list[str] = []
     if ds.integrity["n_dangling_judgments"]:
         problems.append(

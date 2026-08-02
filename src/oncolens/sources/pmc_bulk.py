@@ -1,4 +1,14 @@
-"""PMC Open Access bulk ingestion — real full text, at scale.
+"""DEPRECATED — use ``pmc_cloud`` instead.
+
+NCBI retires the legacy PMC Article Datasets files and the OA Web Service API **on or
+after 24 August 2026**. Everything in this module targets those legacy FTP paths
+(``ftp.ncbi.nlm.nih.gov/pub/pmc/oa_package/...``) and will stop working then. It is kept
+only so existing references do not break; new code should use
+``oncolens.sources.pmc_cloud``, which targets the replacement Cloud Service.
+
+---
+
+PMC Open Access bulk ingestion — real full text, at scale.
 
 Per-article API calls do not scale to a real corpus: NCBI asks for <= 3 requests/second,
 so a million articles is roughly four days of polite requests. The bulk service is the

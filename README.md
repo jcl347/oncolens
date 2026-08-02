@@ -19,9 +19,9 @@ context rather than paraphrased.
 | Real data ingestion (PubMed + PMC full text) | **Verified working** — 24/24 records with real NLM MeSH indexing, verbatim full text |
 | Vercel site (search, compare, eval panel, WebGL) | Built; needs `npm install` + deploy |
 | Vercel storage (Blob + Neon/pgvector) | **Provisioned and verified** — `python scripts/check_stores.py` |
-| **Real corpus in Neon** | **139 documents, 4,714 passages, 58 with verbatim full text** |
-| Vercel Blob (private store) | Working via `scripts/blob_bridge.mjs` — 58 articles uploaded |
-| Retrieval improvement loop | **Deliberately not run** — see *Why the loop hasn't run* below |
+| **Real corpus in Neon** | **1,754 documents, 105,250 passages — every one with verbatim full text** |
+| Vercel Blob (private store) | Working via `scripts/blob_bridge.mjs` |
+| Retrieval improvement loop | **Run (round 2).** One candidate promoted on *dev*; nothing shipped — see *What the loop found* |
 
 `data/` is empty by design. It holds real ingested content, which is never committed.
 The only corpus in the repo is `fixtures/synthetic/`, which is **machine-generated test
@@ -211,9 +211,11 @@ calls because spawning Node per article would dominate a multi-thousand-document
 
 ### Retrieval quality, stated plainly
 
-Measured on **2,225 citation-context queries** over the 1,739-document corpus. Paired
-permutation test against the previously-shipping configuration, Bonferroni threshold
-0.0125 within the iteration:
+Measured on **2,225 citation-context queries** over the 1,739-document corpus *as it stood
+at the time* — the corpus has since been cleaned of abstract-only records and expanded to
+1,754 full-text documents, and the label set to 3,998 claim queries, so these are a dated
+result and not a current one. Paired permutation test against the previously-shipping
+configuration:
 
 | system | nDCG@10 | recall@10 | MRR | Δ vs shipped | 95% CI | W/L |
 |---|---|---|---|---|---|---|
@@ -229,10 +231,15 @@ dense coat: it added little BM25 did not already have, while RRF gave it an equa
 second-largest measured win available was removing it.
 
 ⚠️ **These are lower bounds, not quality estimates.** `unjudged@10 ≈ 0.94` — about 94% of
-returned documents were never judged, at **1.10 judged documents per query**. The promotion
-gate in `docs/MEASUREMENT.md` blocks anything above 0.35 unjudged, and that gate is right.
-The *comparison* between systems survives because the unjudged rate is near-identical across
+returned documents were never judged, at **1.05 judged documents per query on `claim`**
+(that figure is a pooled mean and does not describe `concept`, which carries 13.3). The
+*comparison* between systems survives because the unjudged rate is near-identical across
 them (0.9348–0.9495); no absolute number here should be quoted as "the" retrieval quality.
+
+An earlier version of this note said the gate "blocks anything above 0.35 unjudged, and
+that gate is right". At a measured 0.94 such a gate could never be satisfied by anything,
+so it was not a strict rule but an inoperative one. What the loop actually enforces is a
+bound on the **change** in `unjudged@10`: a candidate must not inflate it.
 `bpref` is absent by design — it returns `None` below 10 judged negatives rather than
 averaging noise into a consensus vote.
 
@@ -280,21 +287,45 @@ LLM invented and no retriever influenced.
 
 ---
 
-## Why the loop hasn't run
+## What the loop found
 
-Three adversarial critics audited the benchmark. Seven defects were fixed (label leakage,
-dev/test split leaking across information needs, underpowered per-stratum gating, a
-degenerate `bpref`, a missing raw-TF floor, an unjudged-pool blocker, a shadow corpus).
-**Three remain open**, and each would make the loop's numbers artifacts:
+It was held back for a long time because the benchmark had known defects. That caution was
+half right: several more defects surfaced in the running of it (a multiplicity correction
+applied to the wrong family, a gate metric written but never wired in, a `SELECT` with no
+`ORDER BY` silently defeating the embedding cache). But the loop's first properly-powered
+result **reversed the sign** of a conclusion the project had carried since round 1, and no
+further inspection would have found that — only data did.
 
-1. All 34 `conceptual` fixture queries are verbatim the concept's own name — query→answer
-   is a dictionary lookup.
-2. The `no_answer` stratum is empty (its authoring agent died mid-stream), so the
-   abstention gate rule is vacuous.
-3. The judgment pool covers ~7% of the corpus; `unjudged@10` is 0.63–0.95.
+**The headline: the cheap change beat the expensive one, and the expensive one is worse
+than doing nothing.**
 
-Ingesting a real corpus with real MeSH labels resolves most of this, which is why that is
-the next step rather than more tuning.
+`medcpt` swaps the dense arm for NCBI's MedCPT, trained on 255M PubMed click logs.
+`openai_768` is its **control** — the same general embedder widened to the same 768
+dimensions — so that a MedCPT win could not be confused with simply having four times the
+vector capacity. On the `claim` stratum (n=2,887, the only one with the power to resolve a
+0.02 effect):
+
+| candidate | mrr | verdict |
+|---|---|---|
+| **medcpt** | **−0.0166** (p=0.0034) | significant **regression**, incl. success@1 −0.0236 |
+| **openai_768** | **+0.0093** (p=0.0024) | **promoted** — 4/5 metrics up, none down |
+
+MedCPT's registered hypothesis called `claim` a *null* stratum. It did not merely fail to
+be null; it significantly regressed — which follows from MedCPT's own rationale read
+honestly, since it was fitted on **short** queries and claim queries are 28-word sentences.
+
+On the underpowered `concept` stratum (MDE 0.066) MedCPT *looked* better than the control
+(+0.0198 vs +0.0079). A loop that stopped there would have concluded domain training beats
+capacity and gone off to build a hosted MedCPT endpoint — 768-dim vectors, ~2 GB of torch,
+a schema change off `vector(192)`, and inference that does not fit a Vercel function.
+
+⚠️ `openai_768` is promoted on **dev only**. Shipping requires clearing the Pareto rule on
+every stratum and spending the locked `test` split, neither of which has happened.
+
+**What made the difference was data, not cleverness.** Expanding the corpus along its own
+citation graph took the labelled set from 2,225 to 3,998 claim queries and 0 to 1,272
+synthesis questions — converting citations *already mined* into labels, because the cited
+paper is now held. That is the only lever that has ever moved the measured bottleneck.
 
 ---
 

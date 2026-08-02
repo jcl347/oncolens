@@ -751,12 +751,22 @@ Read `docs/MEASUREMENT.md`. The short version of what protects this:
   being averaged into a consensus vote.
 - **`unjudged@10 > 0.35` blocks promotion outright.** Measured 0.63 — most returned
   documents were never judged, so the score is an underestimate of unknown size.
-- **Bonferroni within an iteration**, not cumulatively. Correcting over every draw ever
-  taken drives alpha to 0.05/38 and guarantees Type II errors; the locked test split is the
-  real defence against cumulative overfitting.
+- **Holm across candidates within an iteration**, on one pre-registered gate metric — not
+  Bonferroni across correlated metrics (§4.10), and not cumulatively over every draw ever
+  taken, which drives alpha to 0.05/38 and guarantees Type II errors. The locked test split
+  is the real defence against cumulative overfitting.
 
-**The improvement loop has never been run,** deliberately — three benchmark defects remain
-open (see README). Running it would produce confident numbers that are artifacts.
+**Status of the loop.** Round 2 has been run (§4.13). One candidate is promoted **on dev**:
+`openai_768`. Nothing has been shipped — promotion requires clearing the Pareto rule across
+every stratum, and the locked `test` split is still unspent.
+
+The older note here said the loop had "never been run, deliberately" because benchmark
+defects were open. Those defects were real and several more were found in the running of it
+(§4.10, §4.11, §6.6). But the case for not running it was weaker than it looked: the loop's
+first properly-powered result **reversed the sign** of the conclusion the project had been
+carrying since round 1 (§4.13), and no amount of further inspection would have found that —
+only data did. Defects in a harness are a reason to fix the harness and re-run, not a reason
+to keep reasoning in its absence.
 
 ## 6. Things that bit, so they don't bite again
 

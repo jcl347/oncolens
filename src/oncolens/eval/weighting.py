@@ -50,6 +50,34 @@ PRIMARY_METRIC: dict[str, str] = {
     "claim": "mrr",
 }
 
+#: Which metric family a change is CAPABLE of moving.
+#:
+#: Learned from a failure of this harness. `rerank_llm` reorders the top 24 chunks; it
+#: cannot change WHICH documents are in the top 20, so recall@20 moved by exactly 0.0000
+#: on the synthesis stratum. Because synthesis is gated on recall@20, the reranker was
+#: structurally unable to pass however good it was, and its significant gains on mrr
+#: (+0.0123, p=0.030) and ndcg@10 (+0.0048, p=0.012) were discarded on a technicality.
+#:
+#: Gating a change on a metric it cannot affect is not a strict standard, it is a broken
+#: one: it produces confident negatives that carry no information.
+ORDERING_ONLY = frozenset({"rerank_llm", "topn_decay"})
+#: For those, judge on a rank-sensitive metric even where the stratum's task metric is
+#: coverage. Coverage is still reported, and a coverage REGRESSION still vetoes.
+ORDERING_METRIC: dict[str, str] = {
+    "synthesis": "ndcg@10",
+    "concept": "success@1",
+    "identifier": "success@1",
+    "claim": "mrr",
+}
+
+
+def gate_metric(stratum: str, candidate: str) -> str:
+    """The metric this candidate should be judged on for this stratum."""
+    if candidate in ORDERING_ONLY:
+        return ORDERING_METRIC.get(stratum, "mrr")
+    return PRIMARY_METRIC.get(stratum, "mrr")
+
+
 #: Reported alongside, never used for promotion on its own.
 SECONDARY_METRICS: dict[str, tuple[str, ...]] = {
     "synthesis": ("recall@10", "ndcg@10", "success@5"),

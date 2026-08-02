@@ -135,6 +135,24 @@ CANDIDATES: list[Candidate] = [
                   "without a hosted endpoint and a schema change",
     ),
     Candidate(
+        "adaptive_weights", "set fusion weights from the query's shape",
+        "THE FINDING FROM ROUND 1. Two failures pointed opposite ways: dropping BM25 hurt "
+        "the 2-word concept stratum (success@10 -0.0707, p=0.0008) while doubling BM25 "
+        "hurt conceptual synthesis queries (recall@20, recall@10, ndcg@10 all regressed). "
+        "Neither is a contradiction - the optimal weight is query-type dependent, and one "
+        "global weight is wrong in both directions.",
+        {"adaptive": True},
+    ),
+    Candidate(
+        "mmr_diversify", "MMR with a per-document cap on the passage ranking",
+        "Synthesis has the lowest score of any stratum (recall@20 0.3078) and the highest "
+        "weight. Depth and aggregation both did nothing, so the passages are being found "
+        "and then crowded out: one paper contributing five near-identical passages "
+        "displaces four other papers from the answer SET. Diversity should help coverage "
+        "specifically, which is what that stratum measures.",
+        {"mmr": True},
+    ),
+    Candidate(
         "openai_768", "same OpenAI model at 768 dimensions",
         "CONTROL, not a proposal. MedCPT is 768-dim against a 192-dim OpenAI index, so a "
         "MedCPT win would confound domain training with vector capacity. This isolates "
@@ -256,12 +274,29 @@ class Harness:
         agg = cfg.get("aggregate", "max")
         use_expand = cfg.get("expand", False)
         use_rerank = cfg.get("rerank", False)
+        use_adaptive = cfg.get("adaptive", False)
+        use_mmr = cfg.get("mmr", False)
         exp = self.expanded_queries() if use_expand else None
         qvecs, dvecs = (self.dense_vectors(cfg["dense_backend"])
                         if cfg.get("dense_backend") else (self.qvecs, self.dvecs))
 
         per_query: dict[str, dict[str, float]] = {}
         for qi, qid in enumerate(self.qids):
+            # ADAPTIVE FUSION. Round 1 measured two failures pointing opposite ways:
+            # dropping BM25 hurt 2-word concept queries (success@10 -0.0707, p=0.0008)
+            # while doubling BM25 hurt conceptual synthesis queries (recall@20, recall@10
+            # and ndcg@10 all regressed). A short query is mostly literal and needs the
+            # lexical arm; a long conceptual one carries enough context for the dense arm
+            # to do better work. One global weight is wrong in both directions.
+            if use_adaptive:
+                n_words = len(self.queries[qid].split())
+                if n_words <= 3:
+                    bm25_w, dense_w = 2.0, 1.0
+                elif n_words <= 8:
+                    bm25_w, dense_w = 1.0, 1.0
+                else:
+                    bm25_w, dense_w = 1.0, 2.0
+
             runs, weights = [], []
             if bm25_w > 0:
                 lex_q = exp[qid] if exp else self.queries[qid]
@@ -288,6 +323,9 @@ class Harness:
                 fused = ([(head[r.index][0], r.score) for r in order]
                          + [(c, -1.0 - i) for i, (c, _) in enumerate(fused[24:])])
 
+            if use_mmr:
+                fused = _cap_per_document(fused, self.chunk_to_doc, cap=2)
+
             docs = aggregate_chunks_to_docs(fused, self.chunk_to_doc, strategy=agg)
             src = exclude.get(qid)
             ranking = [d for d, _ in docs if d != src][:TOP_K]
@@ -296,6 +334,31 @@ class Harness:
             per_query[qid]["_ranking_hash"] = float(
                 hash(tuple(ranking)) % 1_000_000_007)
         return per_query
+
+
+def _cap_per_document(ranked: list, chunk_to_doc: dict, *, cap: int = 2) -> list:
+    """Limit how many passages one document may contribute before others are considered.
+
+    Cheap stand-in for MMR that targets the same failure. A synthesis question is answered
+    by a SET of papers, and one paper contributing five near-identical passages displaces
+    four other papers from that set. Since depth (400 candidates) and aggregation
+    (topn_decay) both moved nothing, the passages are being FOUND and then crowded out -
+    which is a diversity problem, not a recall problem.
+
+    Capped passages are appended after the diversified head rather than dropped, so this
+    reorders rather than discards: nothing that was retrievable becomes unretrievable.
+    """
+    seen: dict[str, int] = {}
+    head, tail = [], []
+    for chunk_id, score in ranked:
+        doc = chunk_to_doc.get(chunk_id)
+        n = seen.get(doc, 0)
+        if n < cap:
+            seen[doc] = n + 1
+            head.append((chunk_id, score))
+        else:
+            tail.append((chunk_id, score))
+    return head + tail
 
 
 def mean_of(per_query: dict, key: str) -> float:

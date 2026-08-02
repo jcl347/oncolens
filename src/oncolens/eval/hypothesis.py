@@ -162,6 +162,24 @@ HYPOTHESES: dict[str, Hypothesis] = {
                   "single-target lookup does; 200 may truncate the tail of the set.",
         null_strata=("identifier",),
     ),
+    "adaptive_weights": Hypothesis(
+        candidate="adaptive_weights", stratum="concept", metric="success@5",
+        direction="up", min_effect=0.01,
+        mechanism="Round 1 showed dropping BM25 hurts short queries and doubling it hurts "
+                  "long conceptual ones. Weighting by query length should capture both "
+                  "ends instead of compromising between them. Predicted on concept because "
+                  "that stratum is uniformly short, so the rule fires on every query.",
+        null_strata=(),
+    ),
+    "mmr_diversify": Hypothesis(
+        candidate="mmr_diversify", stratum="synthesis", metric="recall@20",
+        direction="up", min_effect=0.01,
+        mechanism="Depth and aggregation both moved nothing on synthesis, so the right "
+                  "passages are found and then crowded out by near-duplicates from the "
+                  "same paper. Capping per-document contribution should raise SET coverage "
+                  "specifically - which is exactly what recall@20 measures.",
+        null_strata=("identifier",),
+    ),
     "medcpt": Hypothesis(
         candidate="medcpt", stratum="concept", metric="success@5",
         direction="up", min_effect=0.02,

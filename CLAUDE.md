@@ -937,6 +937,115 @@ does not change what it is: an unpredicted significant effect is the single most
 thing to be a multiple-comparisons artifact, and it becomes round 4's hypothesis rather
 than round 3's win.
 
+### 4.15 The served search never matched its client, and nobody could tell
+
+A seven-dimension usability review with adversarial verification (55 findings raised, 33
+survived) found that **the product's one rule was inert in production**, plus three other
+things that changed what a reader would *believe* about a result. All four are the same
+species: a surface that asserted more than the mechanism underneath it knew.
+
+#### The one rule was not running
+
+`/api/search` has two implementations. `api/search.py` serves the bundled artifact and is
+reached only by preview deployments with no database. `live_query._shape` serves every
+deployment with `POSTGRES_URL` set, which is production. They had drifted:
+
+| field the client reads | artifact path | live path |
+|---|---|---|
+| `passage.best_clause` | ✅ | **never set** |
+| `passage.clauses` | `Clause.as_dict()`, with `matched_terms` + `spans` | hand-rolled, neither |
+| `doc_type`, `meta` | ✅ | **dropped**; PMID buried in a `source` object nobody reads |
+| clause offsets | `base_offset=start_char`, section-absolute | **no base_offset**, passage-relative |
+
+`ResultCard` reads `passage.best_clause`, got `undefined`, and fell back to
+`text.slice(0, 320)`. So on every production query: **no highlight**, no journal, no PubMed
+link, an empty `doc_type` chip, and a provenance line printing whole-passage offsets while
+labelled as the matched span. `neon_store.hybrid_search` had been returning `doc_type` and
+`meta` the whole time; `_shape` discarded them.
+
+This is §4.11 recurring. That lesson produced `tests/test_compare_contract.py` and stopped
+there. There is now `tests/test_search_contract.py`, whose fixture uses a **non-zero**
+`start_char` so a missing `base_offset` fails loudly rather than printing a character range
+that does not exist in the article.
+
+#### Gibberish returned five confident oncology papers
+
+The `lexical` CTE is gated on `tsv @@ plainto_tsquery` and can return nothing. The `dense`
+CTE has **no WHERE and no distance threshold** — it always returns its 200 nearest
+neighbours. So `hybrid_search` can never come back empty. Measured live:
+
+| query | lexical match | returned |
+|---|---|---|
+| `osimertinib resistance` | yes | the right papers, highlighted |
+| `osimertnib resistanse` | **no** | still the right papers; the embedding absorbs the typo |
+| `zzqqxx flurbotanix` | **no** | **five ranked ferroptosis papers** |
+
+Nothing distinguished the third row from the first. Absence of evidence was rendered as
+evidence. The fusion now carries `MIN(lex_rank)`/`MIN(dense_rank)` through, each result is
+labelled *terms* / *terms + meaning* / *meaning only*, and the list is bannered when no
+result had a literal hit.
+
+The per-result score badge was **removed rather than kept**: it printed a raw RRF sum whose
+entire range is ~0.008–0.033, so adjacent ranks tied at three decimals and it conveyed
+strictly less than the rank already printed beside it.
+
+#### The trust strip quoted the synthetic fixture
+
+`public/eval_report.json` is 140 machine-generated documents, 116 queries, strata
+`boolean_scope / conceptual / lexical / multi_hop / paraphrase`. The live index is thousands
+of real papers with strata `synthesis / concept / identifier / claim`, scored by
+`ts_rank_cd` where that harness used BM25. The search page rendered its `ndcg@10 0.551` in a
+strip **directly above every result list**.
+
+`fixtures/README.md` and this file both say a number from the synthetic corpus must never be
+quoted as evidence about real retrieval. Nothing enforced it. `/api/evaluate` now compares
+the report's corpus against the live store and the client refuses the headline on mismatch.
+
+#### "Not reported" was a claim the mechanism could not support
+
+The comparison grid printed *"not reported"* under a banner reading "the paper does not
+report that dimension". What actually happened: no chunk cleared `ts_rank_cd >= 0.08`
+against an **OR of the aspect's cue words**, with numeric aspects needing only a digit
+somewhere in the chunk. An empty cell can be a paper that used different wording, or one
+that scored 0.079. A researcher assembling a review table writes "not reported" down as a
+finding, so the tool was putting a claim in their notes it had never established.
+
+Now reads *"no passage matched"*, distinguishes `no_cue_match` from `below_threshold`, and
+shows the near-miss score. Its contrast was also raised from `slate-600` (~2.5:1 here) to
+`slate-400`: at the old value the cell read as **visually blank**, inviting exactly the "no
+effect" misreading the code comment said the wording existed to prevent.
+
+#### Smaller, and the pattern they share
+
+* Compare cells were clipped to **700 characters server-side** while `start_char`/`end_char`
+  described up to 1,600, under a caption saying "verbatim, at the offsets above". Measured
+  after the fix: the longest cell is **1,574 characters**, so 874 were being dropped.
+* Requests were unsequenced: refine a query mid-flight and whichever response lands last
+  wins, with nothing naming the query the list answers.
+* Error responses were shared-cached for 5 minutes (an hour on `/api/paper`). Neon suspends
+  when idle, so the first 503 was served for minutes while the retry that would have worked
+  looked futile.
+* `r.json()` ran before the `r.ok` check, so a gateway timeout surfaced as
+  `Unexpected token '<'`.
+* **Half of Compare was unreachable.** Eight aspects are defined, four were reachable;
+  `api/compare.py` had always parsed `?aspect=` and the client never sent it. Among the
+  dead four: `resistance`, in an oncology tool whose own placeholder invites resistance
+  questions. It returns 100% coverage when asked.
+* A search was never written to the URL, so it could not be shared, bookmarked, or survive
+  a refresh, and `?q=` support on the read side was likewise dead code.
+
+**The recurring shape is worth naming.** Four separate times, a capability existed on one
+side of an interface and was never called from the other: `?q=`, `?aspect=`, `best_clause`,
+`gate_metric` (§4.10). Each looks like a missing feature and is actually a *finished*
+feature that nothing invokes. Grepping for a parameter's definition proves nothing; the
+question is whether any caller passes it.
+
+**And a note on my own tooling.** The patch that added the error-cache guard referenced a
+`status` variable that does not exist in `evaluate.do_GET`. `py_compile` passed, because it
+only checks syntax; it was a `NameError` at request time. Syntax-checking a change to
+runtime behaviour verifies nothing — there is now a smoke test that actually calls every
+handler.
+
 ### 4.9 Environment facts learned the expensive way
 
 | Fact | Consequence |

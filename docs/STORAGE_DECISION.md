@@ -4,25 +4,57 @@ Written after ingesting a real corpus, so the numbers are measured rather than e
 
 ## Measured facts about this workload
 
-| Quantity | Measured |
-|---|---|
-| Documents ingested | 139 |
-| Passages | 4,714 |
-| Passages per document | **33–37** (real full text) |
-| `chunks.text` total | 1.8 MB |
-| `chunks` table incl. 192-dim vectors | **25 MB** |
-| Bibliography share of raw text | 18.4% (removed at chunk time) |
+Re-measured at 1,739 documents. The earlier 139-document figures are kept in the last
+column because the *prediction they supported* can now be checked, which is more useful
+than quietly replacing them.
 
-**Extrapolation.** ~34 passages/document is the load-bearing number:
+| Quantity | Measured @1,739 docs | Was @139 docs |
+|---|---|---|
+| Documents ingested | **1,739** | 139 |
+| Passages | **59,306** | 4,714 |
+| Passages per document | **34.1** | 33–37 |
+| `chunks.text` total | **53.8 MB** | 1.8 MB |
+| Database total | **345 MB** | 25 MB |
+| Bibliography share of raw text | 19% median (5.6%–42.4%) | 18.4% |
 
-| Corpus | Passages | Vectors @192-dim float32 | Table size (est.) |
-|---|---|---|---|
-| 1k papers | ~34k | 26 MB | ~180 MB |
-| 10k papers | ~340k | 260 MB | ~1.8 GB |
-| 100k papers | ~3.4M | 2.6 GB | ~18 GB |
-| All PMC OA (~6M) | ~200M | 154 GB | ~1 TB |
+**The extrapolation was close.** It predicted ~180 MB per 1,000 papers; the measured figure
+is **198 MB per 1,000 papers** — 10% optimistic, and the shape of the curve was right.
 
-This matters more than any vendor comparison: **the answer changes at 10k papers.**
+| Corpus | Passages | Projected DB size (at 198 MB/1k) |
+|---|---|---|
+| 1k papers | ~34k | ~198 MB |
+| **1.7k papers** | **59k** | **345 MB (measured)** |
+| 10k papers | ~341k | ~2.0 GB |
+| 100k papers | ~3.4M | ~20 GB |
+| All PMC OA (~6M) | ~200M | ~1.2 TB |
+
+### Where the 345 MB actually goes — measured, not assumed
+
+| Component | Size | Note |
+|---|---|---|
+| `chunks` indexes | 186 MB → **100 MB** | after dropping an unused index, below |
+| `chunks` TOAST (text columns) | ~135 MB | `text` 53.8 MB + `indexed_text` 60.7 MB |
+| `chunks` heap | 99 MB | |
+| `documents` | 2.8 MB | negligible |
+
+**An unused index was 20% of the database.** `chunks_trgm_idx`, a GIN trigram index on
+`indexed_text`, measured **86 MB with `idx_scan = 0`** — the planner had never once used it.
+Dropping it took the database from 431 MB to 345 MB with no functional change. Check
+`pg_stat_user_indexes.idx_scan` before adding storage; an index nobody queries is pure cost.
+
+Two further levers exist and are **deliberately not taken yet**, because both trade
+retrieval quality for space and there is now a 2,225-query benchmark that can settle them:
+
+| Lever | Saving | Why it is not free |
+|---|---|---|
+| Drop `indexed_text`, regenerate `tsv` | −61 MB | `tsv` is a *generated column* from it, so this removes the title and section from the searchable text |
+| 192 → 128 dims (Matryoshka) | −37 MB | should cost little; "should" is not a measurement |
+
+### The free tier's ceiling arrived exactly where predicted
+
+The note below said the 0.5 GB free tier "holds ~2k papers, not 10k". Neon warned at 89%
+of 0.54 GB with **1,739 papers** indexed. The prediction was correct and the constraint is
+real: **this workload outgrows the free tier at roughly 2,700 papers.**
 
 ---
 

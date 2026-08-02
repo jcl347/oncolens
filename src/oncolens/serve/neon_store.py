@@ -107,7 +107,87 @@ CREATE TABLE IF NOT EXISTS corpus_meta (
     k TEXT PRIMARY KEY,
     v DOUBLE PRECISION NOT NULL
 );
+
+-- Which embedding backend produced chunks.embedding.
+--
+-- **Why this table exists.** A query vector from one model compared against document
+-- vectors from another returns a ranking: it is not an error, it is nonsense that looks
+-- like results. Cosine distance is perfectly happy to compare two unrelated 192-dim
+-- spaces. Since the corpus was first embedded with LSA and later re-embedded with
+-- text-embedding-3-small at the same dimensionality, nothing about the column's *shape*
+-- would reveal the mismatch. Serving therefore reads this and refuses to answer if the
+-- query encoder disagrees.
+CREATE TABLE IF NOT EXISTS index_config (
+    k         TEXT PRIMARY KEY,
+    v         TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
+
+#: Keys stored in ``index_config``.
+CFG_EMBED_MODEL = "embedding_model"
+CFG_EMBED_DIM = "embedding_dim"
+
+
+def set_index_config(conn, **kv: str) -> None:
+    with conn.cursor() as cur:
+        for k, v in kv.items():
+            cur.execute(
+                "INSERT INTO index_config (k, v, updated_at) VALUES (%s, %s, now()) "
+                "ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = now()",
+                (k, str(v)),
+            )
+    conn.commit()
+
+
+def get_index_config(conn) -> dict[str, str]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.index_config')")
+        if cur.fetchone()[0] is None:
+            return {}
+        cur.execute("SELECT k, v FROM index_config")
+        return {k: v for k, v in cur.fetchall()}
+
+
+class EmbeddingMismatch(RuntimeError):
+    """Raised when the query encoder does not match the one that built the index."""
+
+
+#: What the corpus was embedded with before ``index_config`` existed. Any index missing
+#: the config predates it, and therefore holds LSA vectors.
+LEGACY_BACKEND = "lsa"
+
+
+def assert_embedding_matches(conn, backend_name: str, dim: int) -> None:
+    """Fail loudly rather than return a plausible-looking wrong ranking.
+
+    **Absent config is not treated as permission.** An index with no recorded backend
+    predates this table, which means it holds LSA vectors — so querying it with any other
+    encoder is precisely the silent-nonsense case, and it is the *likely* case, because the
+    reason a newer encoder is configured is that someone chose it. Tolerating the unset
+    state would disable the guard exactly when it is needed.
+    """
+    cfg = get_index_config(conn)
+    stored = cfg.get(CFG_EMBED_MODEL)
+    if stored is None:
+        if backend_name == LEGACY_BACKEND:
+            return          # consistent with what a pre-config index actually contains
+        raise EmbeddingMismatch(
+            f"the index records no embedding backend, so it predates index_config and "
+            f"holds {LEGACY_BACKEND!r} vectors — but the query encoder is {backend_name!r}. "
+            f"Comparing vectors across embedding spaces returns a confident, meaningless "
+            f"ranking rather than an error. Run "
+            f"`python scripts/reembed_store.py --backend {backend_name} --dim {dim}`, or "
+            f"set ONCOLENS_EMBED_BACKEND={LEGACY_BACKEND!r} to keep serving the old index."
+        )
+    stored_dim = cfg.get(CFG_EMBED_DIM)
+    if stored != backend_name or (stored_dim and int(stored_dim) != dim):
+        raise EmbeddingMismatch(
+            f"index was built with {stored!r} (dim {stored_dim}) but the query encoder is "
+            f"{backend_name!r} (dim {dim}). Comparing vectors across embedding spaces "
+            f"returns a ranking that is nonsense rather than an error. Re-run "
+            f"scripts/reembed_store.py, or set ONCOLENS_EMBED_BACKEND to {stored!r}."
+        )
 
 # --------------------------------------------------------------------------
 # Hybrid search: RRF over a lexical arm and a dense arm, fused in SQL

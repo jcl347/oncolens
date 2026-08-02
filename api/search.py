@@ -231,12 +231,36 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801 — Vercel expects this exa
 
         if not query:
             return self._send(400, {"error": "missing required query parameter 'q'"})
+
+        # Prefer the live store when one is configured. The bundled artifact cannot hold
+        # the current corpus — 59,306 passages exceed what belongs in a function bundle —
+        # so it now serves only preview deployments with no database attached.
+        try:
+            from oncolens.serve.live_query import get_live_index
+            from oncolens.serve.neon_store import EmbeddingMismatch
+
+            live = get_live_index()
+            if live is not None:
+                try:
+                    return self._send(200, live.search(query, top_k=top_k))
+                except EmbeddingMismatch as e:
+                    # Do NOT fall back to the artifact here: silently answering from a
+                    # different index would hide exactly the misconfiguration this error
+                    # exists to surface.
+                    return self._send(503, {
+                        "error": "index/query embedding mismatch",
+                        "detail": str(e)[:400],
+                    })
+        except ImportError:
+            pass  # psycopg absent in a minimal build; artifact path still works
+
         try:
             payload = get_index().search(query, top_k=top_k)
         except FileNotFoundError:
             return self._send(503, {
-                "error": "search index artifact not found",
-                "hint": "run `python scripts/build_artifact.py` and deploy the artifact/ directory",
+                "error": "no search index available",
+                "hint": "set POSTGRES_URL to serve from Neon, or run "
+                        "`python scripts/build_artifact.py` to bundle a snapshot",
             })
         except Exception as e:  # never leak a stack trace to the client
             return self._send(500, {"error": "search failed", "detail": str(e)[:200]})

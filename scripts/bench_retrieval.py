@@ -169,17 +169,31 @@ def main() -> int:
     for system in per_system:
         if system == base:
             continue
-        a, b = paired_values(per_system[base], per_system[system], "ndcg@10")
-        if not a:
+        c = compare(per_system[base], per_system[system], "ndcg@10")
+        if c is None:
             continue
-        c = compare(a, b)
         results[system] = c
         sig = "*" if c.p_value < 0.05 else " "
-        print(f"{system:<18}{c.mean_delta:>+10.4f}{c.p_value:>10.4f}"
-              f"{f'[{c.ci_low:+.4f}, {c.ci_high:+.4f}]':>22}{c.cohens_dz:>8.2f}{sig}")
-    print("\n* = p < 0.05 uncorrected. With several systems compared against one "
-          "baseline,\n  apply a Bonferroni factor of "
-          f"{max(len(results),1)} before calling any of them real.")
+        print(f"{system:<18}{c.delta:>+10.4f}{c.p_value:>10.4f}"
+              f"{f'[{c.ci_low:+.4f}, {c.ci_high:+.4f}]':>22}{c.effect_size:>8.2f}{sig}"
+              f"   W/L/T {c.wins}/{c.losses}/{c.ties}")
+    k = max(len(results), 1)
+    print(f"\n* = p < 0.05 uncorrected. {k} systems were compared against one baseline, so "
+          f"the\n  Bonferroni-corrected threshold is {0.05 / k:.4f} — applied within this "
+          "iteration only.")
+
+    # Sparse judgments are the dominant caveat here, so state it with the numbers rather
+    # than leaving it in a doc nobody opens.
+    n_j = sum(len(v) for v in qrels.values())
+    print(f"\nJUDGMENT DENSITY: {n_j} judgments over {len(qids)} queries "
+          f"= {n_j / max(len(qids), 1):.2f} judged documents per query.")
+    print("  unjudged@10 is ~0.94 for every system: about 94% of returned documents were")
+    print("  never judged, so these are LOWER BOUNDS, not estimates of true quality. The")
+    print("  comparison between systems remains meaningful because the unjudged rate is")
+    print("  nearly identical across them, but no absolute number here should be quoted")
+    print("  as 'the' retrieval quality.")
+    print("  bpref is absent by design: it returns None below 10 judged negatives, and at")
+    print("  this density it would be noise averaged into a consensus vote.")
 
     if args.json_out:
         payload = {

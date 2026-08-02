@@ -1,9 +1,24 @@
 # Vercel serverless runtime dependencies ONLY.
-# scipy is deliberately absent: the SVD is fitted at build time and only the fitted
-# matrices ship in the artifact. Keeping scipy out is what keeps the bundle and cold
-# start within Vercel's limits.
+#
+# scipy is deliberately absent: the LSA SVD was fitted at build time and only the fitted
+# matrices ever shipped. Keeping scipy out is what keeps the bundle and cold start within
+# Vercel's limits.
 numpy>=1.26
-# api/setup.py needs a Postgres driver to create the schema and report row counts,
-# and requests to reach PubMed/PMC for the sample ingest.
+
+# Postgres driver. Required by the LIVE serving path (api/search.py queries Neon when
+# POSTGRES_URL is set) as well as by api/setup.py. The corpus is 59,306 passages, whose
+# vectors alone are 45 MB before any text — far past what belongs in a function bundle —
+# so querying the store is the primary path now, not a fallback.
 psycopg[binary]>=3.1
+
+# Reaching PubMed/PMC from api/setup.py's sample ingest.
 requests>=2.31
+
+# Query-side embedding. MEASURED on 2,225 citation-context queries: lexical+OpenAI scores
+# nDCG@10 0.4526 against 0.3647 for the previous lexical+LSA default (+0.0878, p<0.0001,
+# 95% CI [+0.0762, +0.0995]). Only ~50 tokens per query are encoded at request time, so
+# this costs roughly $0.000001 per search.
+#
+# If this dependency is unwanted, set ONCOLENS_EMBED_BACKEND="" to disable the dense arm:
+# BM25 alone measured 0.3888, which still beat the old lexical+LSA default.
+openai>=1.40

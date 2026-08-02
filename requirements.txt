@@ -3,3 +3,7 @@
 # matrices ship in the artifact. Keeping scipy out is what keeps the bundle and cold
 # start within Vercel's limits.
 numpy>=1.26
+# api/setup.py needs a Postgres driver to create the schema and report row counts,
+# and requests to reach PubMed/PMC for the sample ingest.
+psycopg[binary]>=3.1
+requests>=2.31

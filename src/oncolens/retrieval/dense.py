@@ -329,6 +329,11 @@ class MedCPTBackend:
         self.dimensions = dimensions
         self._q = self._a = None
 
+    def _device(self):
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+
     def _load(self, which: str):
         import torch
         from transformers import AutoModel, AutoTokenizer
@@ -337,7 +342,13 @@ class MedCPTBackend:
         tok = AutoTokenizer.from_pretrained(name)
         mod = AutoModel.from_pretrained(name)
         mod.eval()
-        torch.set_num_threads(max(1, (os.cpu_count() or 4) - 1))
+        dev = self._device()
+        mod.to(dev)
+        if dev == "cpu":
+            # Leave a couple of cores free. Saturating every core made this encoder
+            # starve the two evaluation loops running alongside it — three CPU-bound
+            # jobs contending is slower in total than running them in sequence.
+            torch.set_num_threads(max(1, (os.cpu_count() or 4) - 2))
         return tok, mod
 
     def fit(self, texts: Sequence[str]) -> None:
@@ -355,12 +366,16 @@ class MedCPTBackend:
                 self._a = self._load("a")
             tok, mod = self._a
 
+        dev = self._device()
+        # A GPU tolerates a far larger batch, and batch size is most of the throughput.
+        batch_size = self.batch * 4 if dev == "cuda" else self.batch
         out: list[np.ndarray] = []
         with torch.no_grad():
-            for i in range(0, len(texts), self.batch):
-                batch = [t if t.strip() else " " for t in texts[i : i + self.batch]]
+            for i in range(0, len(texts), batch_size):
+                batch = [t if t.strip() else " " for t in texts[i : i + batch_size]]
                 enc = tok(batch, truncation=True, padding=True,
                           max_length=self.max_length, return_tensors="pt")
+                enc = {k: v.to(dev) for k, v in enc.items()}
                 # MedCPT uses the [CLS] representation, not mean pooling. Substituting
                 # mean pooling would quietly change what the model was trained to produce.
                 vecs = mod(**enc).last_hidden_state[:, 0, :]

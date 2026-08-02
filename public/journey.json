@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-02T04:05:03+00:00",
-  "git_rev": "d1b05f7",
+  "generated_at": "2026-08-02T16:09:05+00:00",
+  "git_rev": "9c8236f",
   "live_store_reachable": true,
   "store_error": null,
   "stages": [
@@ -8,12 +8,12 @@
       "id": "goal",
       "kicker": "The requirement",
       "title": "Return the passage, not just the paper",
-      "narrative": "Every design decision defers to one rule: a result must carry (doc_id, section, start_char, end_char) back to the source. A retrieval change that improves ranking but loses provenance is a regression, not a trade \u2014 because a claim you cannot point at is a claim the reader cannot check.",
+      "narrative": "Every design decision defers to one rule: a result must carry (doc_id, section, start_char, end_char) back to the source. A retrieval change that improves ranking but loses provenance is a regression, not a trade, because a claim you cannot point at is a claim the reader cannot check.",
       "visual": "provenance",
       "metrics": [
         {
           "label": "Documents indexed",
-          "value": 1739,
+          "value": 1754,
           "unit": "",
           "note": "",
           "provenance": "live",
@@ -23,21 +23,11 @@
         },
         {
           "label": "Retrievable passages",
-          "value": 59306,
+          "value": 105250,
           "unit": "",
           "note": "",
           "provenance": "live",
           "command": "SELECT count(*) FROM chunks",
-          "delta": null,
-          "direction": "up"
-        },
-        {
-          "label": "With verbatim full text",
-          "value": 967,
-          "unit": "",
-          "note": "the rest are abstract + MeSH only",
-          "provenance": "live",
-          "command": "meta->>'full_text_chars' > 0",
           "delta": null,
           "direction": "up"
         }
@@ -47,7 +37,7 @@
       "id": "licence",
       "kicker": "Source data",
       "title": "The licence gate was rejecting text-mining licences",
-      "narrative": "The original gate admitted only Creative Commons codes and reported '30 correctly skipped on licence' as if that were good news. TDM is the PMC code for Text and Data Mining \u2014 content publishers release specifically for this use \u2014 and it was being rejected for the sole reason that it is not Creative Commons. That is backwards. Policies now name the intent.",
+      "narrative": "The original gate admitted only Creative Commons codes and reported '30 correctly skipped on licence' as if that were good news. TDM is the PMC code for Text and Data Mining (content publishers release specifically for this use), and it was being rejected for the sole reason that it is not Creative Commons. That is backwards. Policies now name the intent.",
       "visual": "licence",
       "metrics": [
         {
@@ -64,7 +54,7 @@
           "label": "commercial policy",
           "value": 68,
           "unit": "%",
-          "note": "19/28 \u2014 excludes NC",
+          "note": "19/28, excludes NC",
           "provenance": "recorded",
           "command": "",
           "delta": null,
@@ -74,7 +64,7 @@
           "label": "permissive_only (old default)",
           "value": 54,
           "unit": "%",
-          "note": "15/28 \u2014 CC BY only",
+          "note": "15/28, CC BY only",
           "provenance": "recorded",
           "command": "",
           "delta": null,
@@ -91,13 +81,13 @@
           "direction": "up"
         }
       ],
-      "caveat": "If OncoLens is ever commercialised, switch to the commercial policy \u2014 the NC-licensed content indexed today is not licensed for that."
+      "caveat": "If OncoLens is ever commercialised, switch to the commercial policy: the NC-licensed content indexed today is not licensed for that."
     },
     {
       "id": "references",
       "kicker": "The precision leak",
       "title": "Bibliographies are a median 19% of full text, and they retrieve well",
-      "narrative": "Citation strings match queries lexically while containing no findings. Two of the top three hits for 'osimertinib resistance mechanism' were reference entries, not claims. The first detector was tuned by opening articles and judging whether the output looked right \u2014 the exact failure mode this project exists to avoid.",
+      "narrative": "Citation strings match queries lexically while containing no findings. Two of the top three hits for 'osimertinib resistance mechanism' were reference entries, not claims. The first detector was tuned by opening articles and judging whether the output looked right, the exact failure mode this project exists to avoid.",
       "visual": "stripping",
       "metrics": [
         {
@@ -146,7 +136,7 @@
       "id": "ground-truth",
       "kicker": "Method",
       "title": "The publisher already labelled it",
-      "narrative": "PMC's JATS XML carries <ref-list> \u2014 the publisher's own statement of where the bibliography starts. Aligning it onto the plain text turns a matter of taste into a labelled task. The labels showed the signals were never the problem: separation is essentially perfect. The design was wrong.",
+      "narrative": "PMC's JATS XML carries <ref-list>, the publisher's own statement of where the bibliography starts. Aligning it onto the plain text turns a matter of taste into a labelled task. The labels showed the signals were never the problem: separation is essentially perfect. The design was wrong.",
       "visual": "signals",
       "signals": [
         {
@@ -225,14 +215,14 @@
       "id": "review-articles",
       "kicker": "What the benchmark missed",
       "title": "A 60-article sample certified a rule that failed on 180 documents",
-      "narrative": "After scoring 60/60 on labelled data, the live index still held 1,394 reference-shaped passages. The mean was unremarkable; the distribution was the diagnostic \u2014 215 in one document, 124 in another. Concentration means undetected bibliographies. Every labelled article had been a primary research paper, and a review inverts the ratio.",
+      "narrative": "After scoring 60/60 on labelled data, the live index still held 1,394 reference-shaped passages. The mean was unremarkable; the distribution was the diagnostic: 215 in one document, 124 in another. Concentration means undetected bibliographies. Every labelled article had been a primary research paper, and a review inverts the ratio.",
       "visual": "distribution",
       "metrics": [
         {
           "label": "Largest single bibliography",
           "value": 480996,
           "unit": " chars",
-          "note": "PMC10958066 \u2014 80.6% of the document, in one paragraph",
+          "note": "PMC10958066, 80.6% of the document, in one paragraph",
           "provenance": "recorded",
           "command": "",
           "delta": null,
@@ -265,12 +255,12 @@
       "id": "labels",
       "kicker": "Evaluation",
       "title": "The bibliographies are also the labels",
-      "narrative": "When an author writes 'resistance to osimertinib is driven by MET amplification [12]', that sentence is a technical description of reference [12] written by someone who read it. It is a query; the cited paper is the answer; the judgment is free and expert \u2014 and claim-level, where MeSH is only document-level topical. Not circular: labels come from JATS <xref> markup, while retrieval indexes the plain text where markers are already flattened away.",
+      "narrative": "When an author writes 'resistance to osimertinib is driven by MET amplification [12]', that sentence is a technical description of reference [12] written by someone who read it. It is a query; the cited paper is the answer; the judgment is free and expert, and claim-level, where MeSH is only document-level topical. Not circular: labels come from JATS <xref> markup, while retrieval indexes the plain text where markers are already flattened away.",
       "visual": "citation-graph",
       "metrics": [
         {
           "label": "Queries",
-          "value": 2225,
+          "value": 3998,
           "unit": "",
           "note": "",
           "provenance": "artifact",
@@ -280,7 +270,7 @@
         },
         {
           "label": "Relevance judgments",
-          "value": 2439,
+          "value": 4208,
           "unit": "",
           "note": "",
           "provenance": "artifact",
@@ -290,7 +280,7 @@
         },
         {
           "label": "Distinct target papers",
-          "value": 1035,
+          "value": 1396,
           "unit": "",
           "note": "",
           "provenance": "artifact",
@@ -302,7 +292,7 @@
           "label": "Yield before snowball ingestion",
           "value": 3,
           "unit": "",
-          "note": "3 labels from 4,973 contexts \u2014 4,967 cited papers we did not hold",
+          "note": "3 labels from 4,973 contexts, 4,967 cited papers we did not hold",
           "provenance": "recorded",
           "command": "",
           "delta": null,
@@ -312,7 +302,7 @@
       "guards": [
         {
           "hazard": "The citing paper contains the query verbatim",
-          "guard": "assert_source_excluded() raises \u2014 asserted, not documented"
+          "guard": "assert_source_excluded() raises, asserted rather than documented"
         },
         {
           "hazard": "Judgments are incomplete",
@@ -328,7 +318,7 @@
         },
         {
           "hazard": "'as previously described [9]'",
-          "guard": "rejected \u2014 an assertive verb is required"
+          "guard": "rejected: an assertive verb is required"
         }
       ]
     },
@@ -338,52 +328,11 @@
       "title": "Measured on 2,225 expert-written queries",
       "narrative": "Systems are compared on identical queries with a paired permutation test and a bootstrap confidence interval. With this many queries a two-point nDCG gap is still routinely noise, and shipping on a point estimate is how retrieval systems silently get worse.",
       "visual": "bars",
-      "systems": [
-        {
-          "system": "bm25",
-          "ndcg@10": 0.3888,
-          "recall@10": 0.5318,
-          "mrr": 0.3496,
-          "map": 0.3398,
-          "unjudged@10": 0.9432
-        },
-        {
-          "system": "lsa",
-          "ndcg@10": 0.3088,
-          "recall@10": 0.4646,
-          "mrr": 0.2649,
-          "map": 0.257,
-          "unjudged@10": 0.9495
-        },
-        {
-          "system": "openai",
-          "ndcg@10": 0.4116,
-          "recall@10": 0.5678,
-          "mrr": 0.3681,
-          "map": 0.3589,
-          "unjudged@10": 0.9389
-        },
-        {
-          "system": "hybrid-lsa",
-          "ndcg@10": 0.3647,
-          "recall@10": 0.5206,
-          "mrr": 0.3218,
-          "map": 0.312,
-          "unjudged@10": 0.9442
-        },
-        {
-          "system": "hybrid-openai",
-          "ndcg@10": 0.4526,
-          "recall@10": 0.6082,
-          "mrr": 0.4096,
-          "map": 0.3993,
-          "unjudged@10": 0.9348
-        }
-      ],
+      "systems": [],
       "metrics": [
         {
           "label": "Queries evaluated",
-          "value": 2225,
+          "value": 3998,
           "unit": "",
           "note": "",
           "provenance": "artifact",
@@ -392,19 +341,19 @@
           "direction": "up"
         }
       ],
-      "caveat": "unjudged@10 is about 0.94 for every system: roughly 94% of returned documents were never judged, at 1.10 judged documents per query. These are LOWER BOUNDS, not estimates of retrieval quality \u2014 the promotion gate blocks anything above 0.35 unjudged, and it is right to. The comparison between systems holds because the unjudged rate is nearly identical across them; no single number here should be quoted as 'the' retrieval quality. bpref is absent by design: it returns None below 10 judged negatives rather than averaging noise into a consensus.",
-      "headline": "Deleting a component was the second-largest win available: BM25 alone beat the lexical+LSA hybrid that shipped, p < 0.0001."
+      "caveat": "The benchmark has not been run against this index. No numbers are shown, rather than stale ones.",
+      "headline": null
     },
     {
       "id": "storage",
       "kicker": "Infrastructure",
       "title": "Neon is right for now, and the limit is already visible",
-      "narrative": "This corpus is relational \u2014 grants, publications, PIs, institutions \u2014 and those joins are half the product, which is the real argument for Postgres over a pure vector store. The cost is that ts_rank_cd is not BM25, so the offline harness and production score differently. The free tier's ceiling arrived exactly where the storage note predicted.",
+      "narrative": "This corpus is relational (grants, publications, PIs, institutions), and those joins are half the product, which is the real argument for Postgres over a pure vector store. The cost is that ts_rank_cd is not BM25, so the offline harness and production score differently. The free tier's ceiling arrived exactly where the storage note predicted.",
       "visual": "storage",
       "metrics": [
         {
           "label": "Database size",
-          "value": 456,
+          "value": 768,
           "unit": " MB",
           "note": "",
           "provenance": "live",
@@ -416,7 +365,7 @@
           "label": "Unused index removed",
           "value": 86,
           "unit": " MB",
-          "note": "GIN trigram index, idx_scan = 0 \u2014 20% of the database",
+          "note": "GIN trigram index, idx_scan = 0, 20% of the database",
           "provenance": "recorded",
           "command": "",
           "delta": null,
@@ -424,7 +373,7 @@
         },
         {
           "label": "Passage text stored",
-          "value": 54,
+          "value": 93,
           "unit": " MB",
           "note": "",
           "provenance": "live",
@@ -433,7 +382,7 @@
           "direction": "up"
         }
       ],
-      "caveat": "Full text lives in Vercel Blob, not Postgres: it is large, immutable and never queried \u2014 only fetched once a passage has already been retrieved."
+      "caveat": "Full text lives in Vercel Blob, not Postgres: it is large, immutable and never queried, only fetched once a passage has already been retrieved."
     }
   ]
 }

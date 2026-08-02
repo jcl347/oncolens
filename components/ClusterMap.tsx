@@ -299,9 +299,9 @@ export default function ClusterMap({ data }: { data: Data }) {
   const shownSep = v ? (useDisc ? v.between_cluster_kept_discriminant : v.between_cluster_kept_pca) : null;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1.25fr_1fr]">
+    <div className="grid gap-6 lg:grid-cols-[1.9fr_1fr]">
       <div>
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-white/10 bg-[radial-gradient(ellipse_at_50%_40%,#0d1420_0%,#05070c_70%)]">
+        <div className="relative aspect-[4/3] min-h-[26rem] w-full overflow-hidden rounded-lg border border-white/10 bg-[radial-gradient(ellipse_at_50%_40%,#0d1420_0%,#05070c_70%)] lg:aspect-[16/10] lg:min-h-[38rem]">
           <canvas
             ref={canvasRef}
             className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
@@ -376,7 +376,7 @@ export default function ClusterMap({ data }: { data: Data }) {
               total variance
             </>
           )}
-          . Both views are linear projections, so distances stay comparable —{" "}
+          . Both views are linear projections, so distances stay comparable.{" "}
           {useDisc
             ? "the “separation” view rotates to the plane where the clusters are furthest apart, which is a camera angle chosen after seeing the labels, not invented structure."
             : "the “variance” view takes the directions of greatest total spread."}{" "}
@@ -398,7 +398,7 @@ export default function ClusterMap({ data }: { data: Data }) {
             </div>
             <p className="mt-1 text-[11px] text-slate-500">
               {activeCluster.size} papers · distinctive terms:{" "}
-              {activeCluster.terms.slice(1).join(", ") || "—"}
+              {activeCluster.terms.slice(1).join(", ") || "n/a"}
             </p>
             <ul className="mt-4 space-y-2">
               {activeCluster.papers.map((p) => (
@@ -409,7 +409,7 @@ export default function ClusterMap({ data }: { data: Data }) {
                   >
                     <span className="block text-xs leading-snug text-slate-200">{p.title}</span>
                     <span className="mt-1 block font-mono text-[10px] text-slate-500">
-                      {p.year ?? "—"} · PMID {p.pmid}
+                      {p.year ?? "n/a"} · PMID {p.pmid}
                       {p.pmcid ? ` · ${p.pmcid}` : ""}
                     </span>
                   </a>
@@ -418,7 +418,7 @@ export default function ClusterMap({ data }: { data: Data }) {
             </ul>
             <p className="mt-3 text-[11px] text-slate-500">
               Papers nearest this cluster&apos;s centre in the full{" "}
-              {v?.source_dim ?? 192}-dimensional space — not in the projection, which is for
+              {v?.source_dim ?? 192}-dimensional space, not in the projection, which is for
               display only.
             </p>
           </div>

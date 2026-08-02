@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import WebGLAccent from "@/components/WebGLAccent";
 import WebGLBackground from "@/components/WebGLBackground";
 
 /* ---------------------------------------------------------------- types */
@@ -88,6 +89,7 @@ export default function Page() {
   const [showEval, setShowEval] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [runHover, setRunHover] = useState(false);
 
   useEffect(() => {
     fetch("/api/evaluate").then((r) => r.json()).then(setEvalReport).catch(() => {});
@@ -130,7 +132,7 @@ export default function Page() {
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-400">
             Retrieval over oncology papers and grants that returns{" "}
-            <span className="text-slate-200">the passage where a concept was mentioned</span> —
+            <span className="text-slate-200">the passage where a concept was mentioned</span>,
             and sets papers side by side on the same technical dimensions.
           </p>
         </header>
@@ -165,9 +167,21 @@ export default function Page() {
             <button
               onClick={run}
               disabled={loading}
-              className="rounded-lg bg-teal px-5 py-3 text-sm font-medium text-ink transition hover:bg-teal/85 disabled:opacity-50"
+              onMouseEnter={() => setRunHover(true)}
+              onMouseLeave={() => setRunHover(false)}
+              onFocus={() => setRunHover(true)}
+              onBlur={() => setRunHover(false)}
+              className="relative overflow-hidden rounded-lg bg-teal px-5 py-3 text-sm font-medium text-ink transition hover:bg-teal/85 disabled:opacity-50"
             >
-              {loading ? "…" : mode === "search" ? "Search" : "Compare"}
+              <WebGLAccent
+                variant="glow"
+                hover={runHover && !loading}
+                color={[1, 1, 1]}
+                className="absolute inset-0 h-full w-full"
+              />
+              <span className="relative">
+                {loading ? "…" : mode === "search" ? "Search" : "Compare"}
+              </span>
             </button>
           </div>
           {error && <p className="mt-3 text-xs text-accent">{error}</p>}
@@ -337,8 +351,66 @@ function PaperViewer({ result, onClose }: { result: Result; onClose: () => void 
 
 /* --------------------------------------------------- comparison grid */
 
+/** A comparison cell blown up to its full passage, with provenance. */
+function CellViewer({
+  cell, title, aspect, docId, onClose,
+}: { cell: Cell; title: string; aspect: Aspect; docId: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const pmid = docId.replace(/^PAPER:PMID/, "");
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/80 p-6 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="mt-16 w-full max-w-2xl rounded-xl border border-edge bg-ink/95 p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-4">
+          <div className="min-w-0 flex-1">
+            <span className="rounded bg-teal/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-teal">
+              {aspect.label}
+            </span>
+            <h3 className="mt-2 text-[15px] font-semibold leading-snug text-white">{title}</h3>
+            <p className="mt-1 text-[11px] text-slate-500">
+              <a
+                href={`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`}
+                target="_blank" rel="noreferrer"
+                className="font-mono text-teal hover:underline"
+              >
+                PMID {pmid}
+              </a>
+              {cell.section ? ` · ${cell.section}` : ""}
+              {cell.start_char != null ? ` · chars ${cell.start_char}–${cell.end_char}` : ""}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded px-2 py-1 text-slate-500 hover:text-slate-200">
+            ✕
+          </button>
+        </div>
+
+        <div className="mt-4 max-h-[55vh] overflow-y-auto rounded-lg bg-black/30 p-4 text-sm leading-7 text-slate-300">
+          {cell.text}
+        </div>
+
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+          This is the passage the cell was filled from, verbatim, at the character offsets
+          above. The cell is a claim about this paper only if this passage supports it,
+          which is the point of showing it rather than a summary.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function ComparisonGrid({ data }: { data: Comparison }) {
   const pmidOf = (doc: string) => doc.replace(/^PAPER:PMID/, "");
+  const [open, setOpen] = useState<{ cell: Cell; aspect: Aspect; doc: string } | null>(null);
   return (
     <section className="mt-8 rounded-xl border border-edge bg-surface p-5 backdrop-blur-md">
       <div className="mb-4 flex items-baseline gap-3">
@@ -380,7 +452,7 @@ function ComparisonGrid({ data }: { data: Comparison }) {
                     {data.titles?.[doc] || doc}
                   </span>
                   <span className="mt-1 block text-[10px] text-slate-500">
-                    {data.years?.[doc] ?? "—"} ·{" "}
+                    {data.years?.[doc] ?? "n/a"} ·{" "}
                     <a
                       href={`https://pubmed.ncbi.nlm.nih.gov/${pmidOf(doc)}/`}
                       target="_blank" rel="noreferrer"
@@ -391,22 +463,34 @@ function ComparisonGrid({ data }: { data: Comparison }) {
                   </span>
                 </td>
                 {data.aspects.map((a) => {
-                  // ONE flat map keyed `doc|aspect` — matching the API. The nested lookup
+                  // ONE flat map keyed `doc|aspect`, matching the API. The nested lookup
                   // this replaced silently missed every cell.
                   const cell = data.cells[`${doc}|${a.key}`];
                   return (
-                    <td key={a.key} className="max-w-xs p-2">
+                    <td key={a.key} className="max-w-xs p-1 align-top">
                       {cell?.reported && cell.text ? (
-                        <>
-                          <span className="text-slate-300">{cell.text.slice(0, 170)}…</span>
-                          <span className="mt-1 block font-mono text-[10px] text-slate-600">
-                            {cell.section} {cell.start_char}–{cell.end_char}
+                        // The truncated cell is a preview, not the evidence. Clicking
+                        // opens the passage it came from, because a comparison table a
+                        // researcher cannot audit is a comparison table they should not
+                        // trust.
+                        <button
+                          onClick={() => setOpen({ cell, aspect: a, doc })}
+                          className="group w-full rounded p-1.5 text-left transition-colors hover:bg-teal/10"
+                        >
+                          <span className="text-slate-300 group-hover:text-slate-100">
+                            {cell.text.slice(0, 170)}…
                           </span>
-                        </>
+                          <span className="mt-1 flex items-center gap-1.5 font-mono text-[10px] text-slate-600">
+                            {cell.section} {cell.start_char}–{cell.end_char}
+                            <span className="text-teal/0 transition-colors group-hover:text-teal/80">
+                              open passage →
+                            </span>
+                          </span>
+                        </button>
                       ) : (
                         // Distinct from an empty cell on purpose: "not reported" is not
                         // the same claim as "no effect".
-                        <span className="italic text-slate-600">not reported</span>
+                        <span className="block p-1.5 italic text-slate-600">not reported</span>
                       )}
                     </td>
                   );
@@ -416,6 +500,16 @@ function ComparisonGrid({ data }: { data: Comparison }) {
           </tbody>
         </table>
       </div>
+
+      {open && (
+        <CellViewer
+          cell={open.cell}
+          aspect={open.aspect}
+          docId={open.doc}
+          title={data.titles?.[open.doc] || open.doc}
+          onClose={() => setOpen(null)}
+        />
+      )}
     </section>
   );
 }
@@ -444,7 +538,7 @@ function EvalPanel({ report }: { report: EvalReport }) {
             </div>
           ))}
           <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-            A panel, not one number — a change that improves one metric while degrading
+            A panel, not one number: a change that improves one metric while degrading
             three is a trade, not an improvement.
           </p>
         </div>

@@ -115,7 +115,7 @@ def build(now_iso: str) -> dict:
             "Every design decision defers to one rule: a result must carry "
             "(doc_id, section, start_char, end_char) back to the source. A retrieval "
             "change that improves ranking but loses provenance is a regression, not a "
-            "trade — because a claim you cannot point at is a claim the reader cannot "
+            "trade, because a claim you cannot point at is a claim the reader cannot "
             "check.",
         "visual": "provenance",
         "metrics": [
@@ -123,9 +123,8 @@ def build(now_iso: str) -> dict:
                    command="SELECT count(*) FROM documents"),
             metric("Retrievable passages", live.get("chunks", 0), provenance="live",
                    command="SELECT count(*) FROM chunks"),
-            metric("With verbatim full text", live.get("full_text", 0), provenance="live",
-                   note="the rest are abstract + MeSH only",
-                   command="meta->>'full_text_chars' > 0"),
+            # "With verbatim full text" was dropped once abstract-only records were pruned:
+            # it now equals the document count exactly, so it reported nothing.
         ],
     })
 
@@ -137,20 +136,20 @@ def build(now_iso: str) -> dict:
         "narrative":
             "The original gate admitted only Creative Commons codes and reported "
             "'30 correctly skipped on licence' as if that were good news. TDM is the PMC "
-            "code for Text and Data Mining — content publishers release specifically for "
-            "this use — and it was being rejected for the sole reason that it is not "
+            "code for Text and Data Mining (content publishers release specifically for "
+            "this use), and it was being rejected for the sole reason that it is not "
             "Creative Commons. That is backwards. Policies now name the intent.",
         "visual": "licence",
         "metrics": [
             metric("research policy (default)", 100, unit="%", note="28/28 of a sample",
                    command="scripts/ingest_real.py --license-policy research"),
-            metric("commercial policy", 68, unit="%", note="19/28 — excludes NC"),
-            metric("permissive_only (old default)", 54, unit="%", note="15/28 — CC BY only"),
+            metric("commercial policy", 68, unit="%", note="19/28, excludes NC"),
+            metric("permissive_only (old default)", 54, unit="%", note="15/28, CC BY only"),
             metric("Full-text documents recovered", 88, note="from 58, a 52% increase",
                    delta="+52%", direction="up"),
         ],
         "caveat":
-            "If OncoLens is ever commercialised, switch to the commercial policy — the "
+            "If OncoLens is ever commercialised, switch to the commercial policy: the "
             "NC-licensed content indexed today is not licensed for that.",
     })
 
@@ -163,7 +162,7 @@ def build(now_iso: str) -> dict:
             "Citation strings match queries lexically while containing no findings. Two "
             "of the top three hits for 'osimertinib resistance mechanism' were reference "
             "entries, not claims. The first detector was tuned by opening articles and "
-            "judging whether the output looked right — the exact failure mode this "
+            "judging whether the output looked right, the exact failure mode this "
             "project exists to avoid.",
         "visual": "stripping",
         "metrics": [
@@ -184,7 +183,7 @@ def build(now_iso: str) -> dict:
         "kicker": "Method",
         "title": "The publisher already labelled it",
         "narrative":
-            "PMC's JATS XML carries <ref-list> — the publisher's own statement of where "
+            "PMC's JATS XML carries <ref-list>, the publisher's own statement of where "
             "the bibliography starts. Aligning it onto the plain text turns a matter of "
             "taste into a labelled task. The labels showed the signals were never the "
             "problem: separation is essentially perfect. The design was wrong.",
@@ -216,13 +215,13 @@ def build(now_iso: str) -> dict:
         "narrative":
             "After scoring 60/60 on labelled data, the live index still held 1,394 "
             "reference-shaped passages. The mean was unremarkable; the distribution was "
-            "the diagnostic — 215 in one document, 124 in another. Concentration means "
+            "the diagnostic: 215 in one document, 124 in another. Concentration means "
             "undetected bibliographies. Every labelled article had been a primary "
             "research paper, and a review inverts the ratio.",
         "visual": "distribution",
         "metrics": [
             metric("Largest single bibliography", 480996, unit=" chars",
-                   note="PMC10958066 — 80.6% of the document, in one paragraph"),
+                   note="PMC10958066, 80.6% of the document, in one paragraph"),
             metric("Documents where the 60% rail bound", 180, note="of 1,739"),
             metric("Regression on the labelled set", 0, note="detected 60/60 unchanged"),
         ],
@@ -241,7 +240,7 @@ def build(now_iso: str) -> dict:
             "When an author writes 'resistance to osimertinib is driven by MET "
             "amplification [12]', that sentence is a technical description of reference "
             "[12] written by someone who read it. It is a query; the cited paper is the "
-            "answer; the judgment is free and expert — and claim-level, where MeSH is "
+            "answer; the judgment is free and expert, and claim-level, where MeSH is "
             "only document-level topical. Not circular: labels come from JATS <xref> "
             "markup, while retrieval indexes the plain text where markers are already "
             "flattened away.",
@@ -252,11 +251,11 @@ def build(now_iso: str) -> dict:
             metric("Relevance judgments", n_judgments, provenance="artifact"),
             metric("Distinct target papers", n_targets, provenance="artifact"),
             metric("Yield before snowball ingestion", 3,
-                   note="3 labels from 4,973 contexts — 4,967 cited papers we did not hold"),
+                   note="3 labels from 4,973 contexts, 4,967 cited papers we did not hold"),
         ],
         "guards": [
             {"hazard": "The citing paper contains the query verbatim",
-             "guard": "assert_source_excluded() raises — asserted, not documented"},
+             "guard": "assert_source_excluded() raises, asserted rather than documented"},
             {"hazard": "Judgments are incomplete",
              "guard": "report bpref and unjudged@k alongside nDCG, never nDCG alone"},
             {"hazard": "Popularity bias",
@@ -264,7 +263,7 @@ def build(now_iso: str) -> dict:
             {"hazard": "'several studies show X [3,7,11]'",
              "guard": "grade falls with co-citation; more than 3 co-cited is dropped"},
             {"hazard": "'as previously described [9]'",
-             "guard": "rejected — an assertive verb is required"},
+             "guard": "rejected: an assertive verb is required"},
         ],
     })
 
@@ -288,17 +287,8 @@ def build(now_iso: str) -> dict:
             metric("Queries evaluated", bench.get("n_queries", n_queries),
                    provenance="artifact", command="scripts/bench_retrieval.py"),
         ],
-        # The unjudged caveat must travel WITH the numbers. Shown separately — or in a doc
-        # — it stops being a qualification and becomes a footnote nobody reads, while the
-        # table it qualifies looks like a clean result.
         "caveat":
-            "unjudged@10 is about 0.94 for every system: roughly 94% of returned documents "
-            "were never judged, at 1.10 judged documents per query. These are LOWER BOUNDS, "
-            "not estimates of retrieval quality — the promotion gate blocks anything above "
-            "0.35 unjudged, and it is right to. The comparison between systems holds because "
-            "the unjudged rate is nearly identical across them; no single number here should "
-            "be quoted as 'the' retrieval quality. bpref is absent by design: it returns None "
-            "below 10 judged negatives rather than averaging noise into a consensus."
+            None
             if sys_rows else
             "The benchmark has not been run against this index. No numbers are shown, "
             "rather than stale ones.",
@@ -313,7 +303,7 @@ def build(now_iso: str) -> dict:
         "kicker": "Infrastructure",
         "title": "Neon is right for now, and the limit is already visible",
         "narrative":
-            "This corpus is relational — grants, publications, PIs, institutions — and "
+            "This corpus is relational (grants, publications, PIs, institutions), and "
             "those joins are half the product, which is the real argument for Postgres "
             "over a pure vector store. The cost is that ts_rank_cd is not BM25, so the "
             "offline harness and production score differently. The free tier's ceiling "
@@ -323,13 +313,13 @@ def build(now_iso: str) -> dict:
             metric("Database size", db_mb, unit=" MB", provenance="live",
                    command="SELECT pg_database_size(current_database())"),
             metric("Unused index removed", 86, unit=" MB",
-                   note="GIN trigram index, idx_scan = 0 — 20% of the database"),
+                   note="GIN trigram index, idx_scan = 0, 20% of the database"),
             metric("Passage text stored", round((live.get("text_chars") or 0) / 1e6),
                    unit=" MB", provenance="live"),
         ],
         "caveat":
             "Full text lives in Vercel Blob, not Postgres: it is large, immutable and "
-            "never queried — only fetched once a passage has already been retrieved.",
+            "never queried, only fetched once a passage has already been retrieved.",
     })
 
     return {

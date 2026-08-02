@@ -130,7 +130,8 @@ def main() -> int:
     from collections import Counter
     print("stratum sizes:", dict(Counter(strata.get(q, "?") for q in queries)))
 
-    harness = Harness(load_chunks(), queries)
+    chunks, index_config = load_chunks()
+    harness = Harness(chunks, queries, index_config=index_config)
     print("\nbaseline across all strata...")
     base_by = run_all_strata(harness, {}, qrels, exclude, strata)
     base_scores = score_table(base_by)

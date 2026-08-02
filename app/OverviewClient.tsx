@@ -66,7 +66,11 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
   const retrieval = stages.find((s) => s.id === "retrieval");
 
   return (
-    <div className="relative min-h-screen bg-[#05070c] text-slate-200">
+    // NO opaque background on this wrapper: `html, body` in globals.css already paint
+    // #060B14, and an opaque colour here would sit in the root stacking context ABOVE the
+    // fixed -z-10 canvas and hide it completely — the canvas would render, cost GPU time,
+    // and never be seen. This mirrors how /search mounts it.
+    <div className="relative min-h-screen text-slate-200">
       {/* Held at 0.55 intensity: this page is long-form reading, and the field must sit
           under the prose rather than beside it. Parallax gives the scroll depth without
           adding motion in the reader's focal area. */}

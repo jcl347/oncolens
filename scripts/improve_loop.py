@@ -211,21 +211,48 @@ def load_qrels(split: str, stratum: str = "claim") -> tuple[dict, dict, dict]:
     return keep, {k: v for k, v in qrels.items() if k in keep}, exclude
 
 
-def load_chunks() -> list[dict]:
+def load_chunks(*, with_embeddings: bool = True) -> tuple[list[dict], dict[str, str]]:
+    """Passages, plus the stored vectors and the index config that describes them.
+
+    **The stored embeddings are the baseline's document vectors.** They were computed at
+    ingest time with the configured backend, and re-encoding the same text through the
+    same API to reproduce them costs money and roughly 25 minutes per run on a 110k-passage
+    corpus — for a byte-identical answer. They are read here instead.
+
+    ``index_config`` comes back with them so the caller can refuse to use them when the
+    recorded backend is not the one the baseline expects: comparing a query vector from
+    one model against document vectors from another does NOT raise, it silently returns a
+    confident, meaningless ranking (see CLAUDE.md 4.6).
+    """
     import psycopg
 
     dsn = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
     if not dsn:
         raise SystemExit("POSTGRES_URL / DATABASE_URL not set")
+    cols = ("chunk_id, doc_id, COALESCE(indexed_text, text)"
+            + (", embedding" if with_embeddings else ""))
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute("SELECT chunk_id, doc_id, COALESCE(indexed_text, text) FROM chunks")
-        return [{"chunk_id": r[0], "doc_id": r[1], "text": r[2]} for r in cur.fetchall()]
+        cur.execute("SELECT k, v FROM index_config")
+        cfg = {k: v for k, v in cur.fetchall()}
+        cur.execute(f"SELECT {cols} FROM chunks")
+        rows = cur.fetchall()
+    out = []
+    for r in rows:
+        d = {"chunk_id": r[0], "doc_id": r[1], "text": r[2]}
+        if with_embeddings:
+            d["embedding"] = r[3]
+        out.append(d)
+    return out, cfg
 
 
 class Harness:
     """Builds every index once; each candidate is a different way of querying them."""
 
-    def __init__(self, chunks: list[dict], queries: dict[str, str], dim: int = 192):
+    #: Backend name the stored `chunks.embedding` column is expected to hold.
+    BASELINE_BACKEND = "openai"
+
+    def __init__(self, chunks: list[dict], queries: dict[str, str], dim: int = 192,
+                 index_config: dict[str, str] | None = None):
         self.chunks = chunks
         self.chunk_ids = [c["chunk_id"] for c in chunks]
         self.texts = [c["text"] for c in chunks]
@@ -235,11 +262,46 @@ class Harness:
         self.queries = queries
         print(f"indexing {len(chunks):,} passages...")
         self.bm25 = BM25Index().build(self.chunk_ids, self.texts)
-        be = make_backend("openai", dim=dim)
-        self.dvecs = be.encode_documents_cached(self.texts, local_data_dir() / "emb_cache")
+        be = make_backend(self.BASELINE_BACKEND, dim=dim)
+
+        # Prefer the vectors already in the store over re-deriving them. Guarded on
+        # index_config: absent config is NOT permission — an index with no record predates
+        # the table and may hold LSA vectors, which is precisely the dangerous case.
+        cfg = index_config or {}
+        stored_ok = (
+            cfg.get("embedding_model") == self.BASELINE_BACKEND
+            and cfg.get("embedding_dim") == str(dim)
+            and all(c.get("embedding") is not None for c in chunks)
+        )
+        if stored_ok:
+            self.dvecs = self._parse_stored(chunks, dim)
+            print(f"  reused {len(self.dvecs):,} stored {cfg['embedding_model']}/"
+                  f"{cfg['embedding_dim']} vectors (no re-encode)")
+        else:
+            why = ("index_config says "
+                   f"{cfg.get('embedding_model')!r}/{cfg.get('embedding_dim')!r}"
+                   if cfg else "no index_config recorded")
+            print(f"  re-encoding documents ({why})")
+            self.dvecs = be.encode_documents_cached(self.texts,
+                                                    local_data_dir() / "emb_cache")
         self.qvecs = be.encode_queries([queries[q] for q in self.qids])
         self._expanded: dict[str, str] | None = None
         self._dense_cache: dict[str, tuple] = {}
+
+    @staticmethod
+    def _parse_stored(chunks: list[dict], dim: int) -> np.ndarray:
+        """pgvector comes back as '[0.1,0.2,...]'. Parse and re-normalise."""
+        m = np.zeros((len(chunks), dim), dtype=np.float64)
+        for i, c in enumerate(chunks):
+            v = np.fromstring(str(c["embedding"]).strip("[]"), sep=",")
+            if v.shape[0] != dim:
+                raise SystemExit(
+                    f"stored vector for {c['chunk_id']} has width {v.shape[0]}, "
+                    f"expected {dim} — refusing to mix embedding spaces")
+            m[i] = v
+        n = np.linalg.norm(m, axis=1, keepdims=True)
+        n[n == 0] = 1.0
+        return m / n
 
     def expanded_queries(self) -> dict[str, str]:
         if self._expanded is None:
@@ -568,7 +630,8 @@ def main() -> int:
     print(f"stratum={args.stratum}  split={split}  {len(queries)} queries, "
           f"{sum(len(v) for v in qrels.values())} judgments")
 
-    harness = Harness(load_chunks(), queries)
+    chunks, index_config = load_chunks()
+    harness = Harness(chunks, queries, index_config=index_config)
     print("\nrunning baseline...")
     base = harness.run({}, qrels, exclude)
     _p = PRIMARY_METRIC.get(args.stratum, "mrr")

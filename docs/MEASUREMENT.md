@@ -70,7 +70,11 @@ that increases false positives.
 | **`bpref`** | **Robust to incomplete judgments** | Needs judged negatives to exist |
 | `unjudged@10` | **Diagnostic, not a score** | — |
 
-No single number is trusted. `CONSENSUS_METRICS` requires at least 4 of 6 to move together.
+No single number is trusted for *reporting*. But see §3 on why the consensus panel is not
+what it appears to be: at 1.10 judgments per query its members are deterministic functions
+of one rank, so "4 of 6 agree" is one fact counted six times, not six confirmations. The
+panel is reported in full; the **decision** rests on one pre-registered metric plus a
+regression veto.
 
 ### `unjudged@10` is the honesty valve
 
@@ -95,11 +99,37 @@ routinely larger than real ones.
 * **Percentile bootstrap CI** on the mean paired difference.
 * **Cohen's `d_z`** plus explicit **win/loss/tie** counts. A change that wins on 8 queries
   and loses on 7 is not the same as one that wins on 40 and loses on 2, even at equal mean.
-* **Bonferroni over the multiple-comparisons ledger.** Every dev evaluation is recorded and
-  the significance threshold is `0.05 / n_dev_draws`. An iterative loop that ignores this is
-  a p-hacking machine by construction: enough challengers and something always "wins".
+* **Holm across CANDIDATES, on one pre-registered gate metric.** An iterative loop that
+  ignores multiplicity is a p-hacking machine by construction: enough challengers and
+  something always "wins". But the correction has to be applied to the right family.
+
+  This previously divided alpha by the size of the reported **metric panel** (5–8
+  metrics). That was wrong and expensive. At **1.10 judged documents per query** nearly
+  every query has exactly one relevant document, and with one relevant document at rank
+  `r`, `mrr = 1/r`, `success@k = 1[r ≤ k]` and `ndcg@10 = 1/log2(r+1)` are all
+  deterministic functions of the same number. Bonferroni assumes independence; correcting
+  across near-perfectly correlated views controls nothing and inflates the minimum
+  detectable effect by 1.22–1.28× — **1.5–1.6× more queries** — on a harness already
+  short of power. Measured:
+
+  | stratum | panel | MDE @ .05 | MDE @ the old gate |
+  |---|---|---|---|
+  | synthesis | 8 | 0.0569 | 0.0727 |
+  | concept | 6 | 0.0622 | 0.0772 |
+  | identifier | 5 | 0.1257 | 0.1533 |
+
+  The family that genuinely needs controlling is the number of **candidates** tried in an
+  iteration. So: one pre-registered gate metric per stratum (`weighting.gate_metric`),
+  Holm-corrected across candidates. Holm dominates Bonferroni at the same family-wise
+  error rate. Secondary metrics remain **regression vetoes tested uncorrected** — a false
+  positive there means refusing a change, which is the safe direction.
+
+  Cumulative correction over every draw ever taken is deliberately *not* used: it drives
+  alpha to nothing and guarantees Type II errors. The locked `test` split is the real
+  defence against cumulative overfitting.
 * **Minimum detectable effect** is reported per stratum. Claiming "no regression" on a
-  stratum of 12 queries is not a finding — `detectable_effect` says so out loud.
+  stratum of 12 queries is not a finding — `detectable_effect` says so out loud. Quote it
+  at the alpha the gate actually uses, not at 0.05.
 
 ---
 
@@ -173,11 +203,21 @@ That is the main reason the harness is written backend- and corpus-agnostic.
 
 A challenger is committed only if **all** hold:
 
-1. `ndcg@10` improves, significant at the Bonferroni-adjusted alpha;
-2. ≥ 4 of 6 consensus metrics improve, and none degrades significantly;
+1. the stratum's **pre-registered gate metric** improves by more than `MIN_EFFECT`, and
+   survives **Holm across the candidates in the iteration**;
+2. **no secondary metric regresses significantly** (tested uncorrected — see §3);
 3. no stratum regresses significantly beyond 0.02;
 4. `no_answer` false positives do not rise and abstention does not fall;
-5. `unjudged@10` does not spike by more than 0.15;
-6. underpowered strata are reported rather than silently passed.
+5. `unjudged@10` does not spike by more than 0.02 relative to baseline;
+6. underpowered strata are reported rather than silently passed;
+7. the candidate's rankings are **not byte-identical to baseline** — a candidate that
+   never fired reports as `NO_EFFECT`, not as a well-behaved negative.
 
-Rules 3–5 are the ones that distinguish this from "the number went up".
+Rules 2–5 and 7 are what distinguish this from "the number went up".
+
+⚠️ **On the absolute `unjudged@10 > 0.35` figure quoted elsewhere:** the citation
+benchmark measures ≈0.94, so an absolute gate at 0.35 would block every promotion
+permanently. The gate that actually runs is on the **delta** (rule 5): a candidate must not
+*increase* the unjudged rate. Absolute unjudged remains a reason to distrust any absolute
+score from this benchmark — only paired comparisons are interpretable — but it is not a
+promotion criterion, because it cannot be met.

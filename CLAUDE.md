@@ -611,5 +611,47 @@ python scripts/build_eval_report.py            # publishes the numbers the site 
 ONCOLENS_DATA=fixtures/synthetic python scripts/run.py validate
 ```
 
+**Corpus maintenance and growth** (in the order they must run):
+
+```bash
+# 1. recover full text the fetch path previously missed, THEN prune what is genuinely
+#    abstract-only. Pruning first throws away the recoverable ones.
+python scripts/ingest_real.py --pmids-file backfill.txt --email you@org.edu --no-blob
+python scripts/prune_abstract_only.py --dry-run      # ALWAYS dry-run first
+python scripts/prune_abstract_only.py --apply        # writes a manifest before deleting
+
+# 2. snowball along the citation graph — but screen it, or 40% of what you ingest is
+#    not oncology (§3.3).
+python scripts/build_citation_labels.py --email you@org.edu --snowball-out snowball.txt
+python scripts/filter_oncology.py --in snowball.txt --out onco.txt --limit 9000
+python scripts/ingest_real.py --pmids-file onco.txt --require-full-text --email you@org.edu
+
+# 3. re-mine labels AFTER expanding: the win is that citations already extracted now
+#    resolve against a larger corpus, so labels appear without fetching anything new.
+python scripts/build_citation_labels.py --email you@org.edu
+python scripts/build_strata.py
+python scripts/calibrate_fast_eval.py --target-effect 0.02   # what can this set SEE?
+python scripts/build_clusters.py --k 14
+```
+
+⚠️ `ingest_real.py` writes to Postgres only after fetching **every** paper in the run, so a
+long list is all-or-nothing. Split into batches of ~700 and run them in sequence.
+
+**Windows + TLS interception (§2.1).** If HTTPS fails anywhere, it is almost certainly the
+certificate store, not the network:
+
+```powershell
+# Node/npm: export the Windows roots once, then point both at them.
+$out = "$env:LOCALAPPDATA\oncolens\win-ca-bundle.pem"
+Get-ChildItem Cert:\LocalMachine\Root, Cert:\CurrentUser\Root | ForEach-Object {
+  "-----BEGIN CERTIFICATE-----"
+  [Convert]::ToBase64String($_.RawData, 'InsertLineBreaks')
+  "-----END CERTIFICATE-----" } | Out-File -Encoding ascii $out
+npm config set cafile $out
+[Environment]::SetEnvironmentVariable("NODE_EXTRA_CA_CERTS", $out, "User")
+```
+
+Python needs nothing extra — `pip install truststore` and `load_env()` handles it.
+
 `fixtures/synthetic/` is **machine-generated, not real papers**. It exists to exercise the
 harness offline. Never quote a number from it as evidence about real retrieval.

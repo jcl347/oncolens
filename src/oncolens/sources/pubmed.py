@@ -58,6 +58,14 @@ class PubMedRecord:
             "meta": {
                 "journal": self.journal, "pmid": self.pmid, "pmcid": self.pmcid,
                 "grants": self.grants, "keywords": self.keywords,
+                # MeSH with the MajorTopicYN flag must live in meta, because meta is the
+                # only part of this dict that upsert_documents persists. It was previously
+                # returned as a sibling key `mesh_detail` and silently dropped at write
+                # time, which threw away the single most valuable property of NLM's
+                # indexing: the distinction between a paper being ABOUT a concept and
+                # merely mentioning it. `descriptors` kept the names but not the grades,
+                # so every stored judgment collapsed to "minor".
+                "mesh": self.mesh,
             },
             # NOTE: real MeSH descriptors, not synthetic labels.
             "descriptors": [f"MESH:{m['descriptor']}" for m in self.mesh],

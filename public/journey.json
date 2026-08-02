@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-02T21:10:42+00:00",
-  "git_rev": "c430371",
+  "generated_at": "2026-08-02T22:53:23+00:00",
+  "git_rev": "2ac162a",
   "live_store_reachable": true,
   "store_error": null,
   "stages": [
@@ -417,7 +417,7 @@
       "judgments": 10368,
       "weight": 0.35,
       "gate_metric": "recall@20",
-      "mde": 0.0052,
+      "mde": 0.0051,
       "mde_analytic": 0.027,
       "mde_source": "measured from paired bootstrap CI",
       "sees_002": true
@@ -428,10 +428,10 @@
       "judgments": 8758,
       "weight": 0.3,
       "gate_metric": "success@5",
-      "mde": 0.0553,
+      "mde": 0.0154,
       "mde_analytic": 0.0553,
-      "mde_source": "analytic, conservative: no run on this stratum yet",
-      "sees_002": false
+      "mde_source": "measured from paired bootstrap CI",
+      "sees_002": true
     },
     {
       "stratum": "identifier",
@@ -439,9 +439,9 @@
       "judgments": 351,
       "weight": 0.2,
       "gate_metric": "success@1",
-      "mde": 0.06,
+      "mde": 0.027,
       "mde_analytic": 0.06,
-      "mde_source": "analytic, conservative: no run on this stratum yet",
+      "mde_source": "measured from paired bootstrap CI",
       "sees_002": false
     },
     {
@@ -450,7 +450,7 @@
       "judgments": 7408,
       "weight": 0.15,
       "gate_metric": "mrr",
-      "mde": 0.0068,
+      "mde": 0.0055,
       "mde_analytic": 0.0167,
       "mde_source": "measured from paired bootstrap CI",
       "sees_002": true

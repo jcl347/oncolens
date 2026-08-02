@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import WebGLAccent from "@/components/WebGLAccent";
 import WebGLBackground from "@/components/WebGLBackground";
 
 /* ---------------------------------------------------------------- types */
@@ -95,7 +94,6 @@ export default function Page() {
   const [showEval, setShowEval] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [runHover, setRunHover] = useState(false);
   /** Set when a query arrives from the URL, cleared once it has been dispatched. */
   const [pending, setPending] = useState<string | null>(null);
   /** Monotonic request id: only the newest in-flight request may write state. */
@@ -262,20 +260,11 @@ export default function Page() {
             <button
               onClick={run}
               disabled={loading}
-              onMouseEnter={() => setRunHover(true)}
-              onMouseLeave={() => setRunHover(false)}
-              onFocus={() => setRunHover(true)}
-              onBlur={() => setRunHover(false)}
-              className="relative overflow-hidden rounded-lg bg-teal px-5 py-3 text-sm font-medium text-ink transition hover:bg-teal/85 disabled:opacity-50"
+              className="group relative overflow-hidden rounded-lg bg-teal px-5 py-3 text-sm font-medium text-ink transition hover:bg-teal/85 disabled:opacity-50"
             >
-              <WebGLAccent
-                variant="glow"
-                hover={runHover && !loading}
-                color={[1, 1, 1]}
-                className="absolute inset-0 h-full w-full"
-              />
+              <span className="accent-glow pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus:opacity-100" />
               <span className="relative">
-                {loading ? "…" : mode === "search" ? "Search" : "Compare"}
+                {loading ? "Searching…" : mode === "search" ? "Search" : "Compare"}
               </span>
             </button>
           </div>

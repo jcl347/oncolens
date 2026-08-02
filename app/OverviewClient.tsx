@@ -3,7 +3,6 @@
 import { Fragment, useState } from "react";
 
 import ClusterMap from "../components/ClusterMap";
-import WebGLAccent from "../components/WebGLAccent";
 import WebGLBackground from "../components/WebGLBackground";
 
 type Metric = {
@@ -47,34 +46,29 @@ function fmt(v: number | string) {
 /**
  * A headline figure that lights up under the pointer.
  *
- * The accent is behind the number rather than around it, and it eases rather than snaps,
- * so a row of these reads as instrumentation coming alive rather than as a hover state
- * firing. The `command` that produced the figure is exposed on hover too: the point of
- * animating a number is to invite scrutiny of it, so the invitation had better lead
- * somewhere.
+ * The accent sits behind the number rather than around it, and the `command` that produced
+ * the figure is revealed on hover: the point of animating a number is to invite scrutiny of
+ * it, so the invitation had better lead somewhere.
+ *
+ * CSS, not WebGL. An earlier version gave this element (and every number in the benchmark
+ * and power tables) its own canvas and its own GL context, which reached ~29 contexts on
+ * this page. Browsers cap them near 8-16, then return null from getContext and evict the
+ * oldest live ones — so the page lost these very numbers AND the cluster map. See
+ * globals.css.
  */
 function LiveMetric({ m }: { m: Metric }) {
-  const [hover, setHover] = useState(false);
   const p = PROVENANCE[m.provenance];
   return (
-    <div
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      className="group relative"
-    >
+    <div className="group relative">
       <dt className="text-[11px] uppercase tracking-wider text-slate-500">{m.label}</dt>
       <dd className="relative mt-1 overflow-hidden rounded">
-        <WebGLAccent
-          variant="glow"
-          hover={hover}
-          className="absolute inset-0 h-full w-full"
-        />
+        <span className="accent-glow pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
         <span className="relative font-mono text-xl tabular-nums text-white">
           {fmt(m.value)}
           {m.unit ? <span className="ml-0.5 text-sm text-slate-400">{m.unit}</span> : null}
         </span>
       </dd>
-      <WebGLAccent variant="rule" hover={hover} className="mt-1 h-[2px] w-full" />
+      <span className="accent-rule mt-1 block h-[2px] w-full opacity-60 transition-opacity group-hover:opacity-100" />
       {p ? (
         <span className={`mt-1.5 inline-block rounded border px-1 py-px text-[9px] uppercase tracking-wider ${p.cls}`}
               title={p.title}>
@@ -95,31 +89,22 @@ function LiveMetric({ m }: { m: Metric }) {
  * A number that lights from within on hover.
  *
  * Used for the figures a reader is meant to interrogate rather than skim: benchmark
- * scores, effect sizes, sample sizes. The glow sits BEHIND the digits and eases in on the
- * shared clock, so a table of these reads as instrumentation rather than as a row of
- * hover states firing independently.
+ * scores, detectable effects, sample sizes. Pure CSS, and deliberately so — a table of
+ * these is 15 to 20 elements, and one GL context per number is what broke the page.
  */
 function LiveNumber({
   children, tone = "neutral", title,
 }: { children: React.ReactNode; tone?: "neutral" | "good" | "bad"; title?: string }) {
-  const [hover, setHover] = useState(false);
-  const color: [number, number, number] =
-    tone === "good" ? [0.42, 0.92, 0.70]
-    : tone === "bad" ? [0.98, 0.55, 0.60]
-    : [0.36, 0.79, 0.87];
   const text =
     tone === "good" ? "text-emerald-300/90"
     : tone === "bad" ? "text-rose-300/80"
     : "text-slate-200";
   return (
     <span
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
       title={title}
-      className="relative inline-block overflow-hidden rounded px-1 py-0.5"
+      className="group relative inline-block overflow-hidden rounded px-1 py-0.5"
     >
-      <WebGLAccent variant="glow" hover={hover} color={color}
-                   className="absolute inset-0 h-full w-full" />
+      <span className="accent-glow-teal pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       <span className={`relative font-mono tabular-nums ${text}`}>{children}</span>
     </span>
   );
@@ -130,7 +115,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
     <div>
       <h2 className="text-xs uppercase tracking-[0.16em] text-cyan-300/70">{children}</h2>
-      <WebGLAccent variant="rule" className="mt-2 h-[2px] w-28" />
+      <span className="accent-rule mt-2 block h-[2px] w-28" />
     </div>
   );
 }
@@ -138,33 +123,28 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 /**
  * A link whose accent responds to the pointer.
  *
- * The glow is driven by the parent's hover state rather than CSS so it *eases* in and out
- * on the shared clock instead of snapping. On a solid button the accent is white, because
- * a cyan glow over a cyan fill is invisible.
+ * On a solid button the accent is white, because a cyan glow over a cyan fill is
+ * invisible.
  */
 function GlowLink({
   href, children, tone = "solid",
 }: { href: string; children: React.ReactNode; tone?: "solid" | "outline" }) {
-  const [hover, setHover] = useState(false);
   const solid = tone === "solid";
   return (
     <a
       href={href}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={() => setHover(true)}
-      onBlur={() => setHover(false)}
-      className={`relative overflow-hidden rounded-md px-4 py-2 text-sm transition-colors ${
+      className={`group relative overflow-hidden rounded-md px-4 py-2 text-sm transition-colors ${
         solid
           ? "bg-cyan-400/90 font-medium text-[#04121a] hover:bg-cyan-300"
           : "border border-white/12 text-slate-300 hover:border-white/25 hover:text-white"
       }`}
     >
-      <WebGLAccent
-        variant="glow"
-        hover={hover}
-        color={solid ? [1, 1, 1] : [0.36, 0.79, 0.87]}
-        className="absolute inset-0 h-full w-full"
+      {/* White over a solid cyan fill; teal over the dark outline variant. A cyan glow on
+          a cyan button is invisible. */}
+      <span
+        className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus:opacity-100 ${
+          solid ? "accent-glow" : "accent-glow-teal"
+        }`}
       />
       <span className="relative">{children}</span>
     </a>

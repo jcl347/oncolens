@@ -14,3 +14,67 @@ html, body {
 
 /* Keep long identifiers (EGFR L858R/T790M/C797S) from blowing out narrow table cells. */
 mark { overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------- accents
+ *
+ * These are CSS, not WebGL, and that is a correction rather than a preference.
+ *
+ * A previous version rendered every section rule, every button glow and every number in
+ * the benchmark and power tables through its own <canvas> with its own WebGL context.
+ * That reached ~29 contexts on the Overview page. Browsers cap concurrent WebGL contexts
+ * at roughly 8-16 and then start returning null from getContext and evicting the OLDEST
+ * live contexts, so the page lost its metric values AND the cluster map, which is the one
+ * element on it that genuinely needs the GPU.
+ *
+ * WebGL now renders exactly two things: the full-page background field and the 1,754-point
+ * rotating corpus map. Everything decorative is a gradient. The motion is slightly more
+ * regular than value noise, which nobody will notice, and the page keeps the two canvases
+ * that carry information.
+ */
+@keyframes accent-sweep {
+  from { background-position: 0% 50%; }
+  to   { background-position: -200% 50%; }
+}
+
+.accent-rule {
+  background-image: linear-gradient(
+    90deg,
+    rgba(92, 201, 222, 0.06) 0%,
+    rgba(92, 201, 222, 0.70) 18%,
+    rgba(92, 201, 222, 0.10) 42%,
+    rgba(92, 201, 222, 0.45) 68%,
+    rgba(92, 201, 222, 0.06) 100%
+  );
+  background-size: 200% 100%;
+  animation: accent-sweep 11s linear infinite;
+}
+
+/* Sits behind a control and fades in on hover of the parent .group. */
+.accent-glow {
+  background-image: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.16) 45%,
+    rgba(255, 255, 255, 0.05) 65%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: accent-sweep 6s linear infinite;
+}
+.accent-glow-teal {
+  background-image: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(92, 201, 222, 0.22) 45%,
+    rgba(92, 201, 222, 0.07) 65%,
+    transparent 100%
+  );
+  background-size: 220% 100%;
+  animation: accent-sweep 6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accent-rule,
+  .accent-glow,
+  .accent-glow-teal { animation: none; }
+}

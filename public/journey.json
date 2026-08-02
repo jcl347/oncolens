@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-02T16:09:05+00:00",
-  "git_rev": "9c8236f",
+  "generated_at": "2026-08-02T21:10:42+00:00",
+  "git_rev": "c430371",
   "live_store_reachable": true,
   "store_error": null,
   "stages": [
@@ -13,7 +13,7 @@
       "metrics": [
         {
           "label": "Documents indexed",
-          "value": 1754,
+          "value": 3166,
           "unit": "",
           "note": "",
           "provenance": "live",
@@ -23,7 +23,7 @@
         },
         {
           "label": "Retrievable passages",
-          "value": 105250,
+          "value": 180850,
           "unit": "",
           "note": "",
           "provenance": "live",
@@ -260,7 +260,7 @@
       "metrics": [
         {
           "label": "Queries",
-          "value": 3998,
+          "value": 7056,
           "unit": "",
           "note": "",
           "provenance": "artifact",
@@ -270,7 +270,7 @@
         },
         {
           "label": "Relevance judgments",
-          "value": 4208,
+          "value": 7408,
           "unit": "",
           "note": "",
           "provenance": "artifact",
@@ -280,7 +280,7 @@
         },
         {
           "label": "Distinct target papers",
-          "value": 1396,
+          "value": 2615,
           "unit": "",
           "note": "",
           "provenance": "artifact",
@@ -328,11 +328,36 @@
       "title": "Measured on 2,225 expert-written queries",
       "narrative": "Systems are compared on identical queries with a paired permutation test and a bootstrap confidence interval. With this many queries a two-point nDCG gap is still routinely noise, and shipping on a point estimate is how retrieval systems silently get worse.",
       "visual": "bars",
-      "systems": [],
+      "systems": [
+        {
+          "system": "bm25",
+          "ndcg@10": 0.4513,
+          "recall@10": 0.6058,
+          "mrr": 0.4063,
+          "map": 0.4007,
+          "unjudged@10": 0.9372
+        },
+        {
+          "system": "openai",
+          "ndcg@10": 0.4813,
+          "recall@10": 0.6335,
+          "mrr": 0.437,
+          "map": 0.4315,
+          "unjudged@10": 0.9341
+        },
+        {
+          "system": "hybrid-openai",
+          "ndcg@10": 0.5262,
+          "recall@10": 0.6806,
+          "mrr": 0.4809,
+          "map": 0.4754,
+          "unjudged@10": 0.9294
+        }
+      ],
       "metrics": [
         {
           "label": "Queries evaluated",
-          "value": 3998,
+          "value": 7056,
           "unit": "",
           "note": "",
           "provenance": "artifact",
@@ -341,8 +366,8 @@
           "direction": "up"
         }
       ],
-      "caveat": "The benchmark has not been run against this index. No numbers are shown, rather than stale ones.",
-      "headline": null
+      "caveat": null,
+      "headline": "Deleting a component was the second-largest win available: BM25 alone beat the lexical+LSA hybrid that shipped, p < 0.0001."
     },
     {
       "id": "storage",
@@ -353,7 +378,7 @@
       "metrics": [
         {
           "label": "Database size",
-          "value": 768,
+          "value": 1289,
           "unit": " MB",
           "note": "",
           "provenance": "live",
@@ -373,7 +398,7 @@
         },
         {
           "label": "Passage text stored",
-          "value": 93,
+          "value": 160,
           "unit": " MB",
           "note": "",
           "provenance": "live",
@@ -383,6 +408,52 @@
         }
       ],
       "caveat": "Full text lives in Vercel Blob, not Postgres: it is large, immutable and never queried, only fetched once a passage has already been retrieved."
+    }
+  ],
+  "power": [
+    {
+      "stratum": "synthesis",
+      "queries": 2179,
+      "judgments": 10368,
+      "weight": 0.35,
+      "gate_metric": "recall@20",
+      "mde": 0.0052,
+      "mde_analytic": 0.027,
+      "mde_source": "measured from paired bootstrap CI",
+      "sees_002": true
+    },
+    {
+      "stratum": "concept",
+      "queries": 533,
+      "judgments": 8758,
+      "weight": 0.3,
+      "gate_metric": "success@5",
+      "mde": 0.0553,
+      "mde_analytic": 0.0553,
+      "mde_source": "analytic, conservative: no run on this stratum yet",
+      "sees_002": false
+    },
+    {
+      "stratum": "identifier",
+      "queries": 335,
+      "judgments": 351,
+      "weight": 0.2,
+      "gate_metric": "success@1",
+      "mde": 0.06,
+      "mde_analytic": 0.06,
+      "mde_source": "analytic, conservative: no run on this stratum yet",
+      "sees_002": false
+    },
+    {
+      "stratum": "claim",
+      "queries": 7056,
+      "judgments": 7408,
+      "weight": 0.15,
+      "gate_metric": "mrr",
+      "mde": 0.0068,
+      "mde_analytic": 0.0167,
+      "mde_source": "measured from paired bootstrap CI",
+      "sees_002": true
     }
   ]
 }

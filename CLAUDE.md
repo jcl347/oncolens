@@ -809,6 +809,121 @@ candidate, the question to answer is not "will this help?" but **"through what m
 could this change the number I am about to gate it on?"** — and if the answer is not
 immediate, the candidate is not ready to run.
 
+### 4.14 Round 3 — the harness was measuring its own blindness wrong
+
+**The correction first, because it revises the project's central claim.** Since round 1
+this file has said evaluation power is the bottleneck. That was true, and it was partly
+self-inflicted: the published minimum detectable effect was computed from the standard
+deviation of the **metric**, when every test here is **paired**. The quantity whose spread
+governs detection is the per-query *difference* between two systems, and most queries
+return an identical ranking under both, so that difference is far tighter than the metric.
+
+The run that exposed it: `route_by_shape` moved claim `mrr` by **+0.0105 at p < 0.0001**
+while the analytic table put that stratum's floor at 0.0167. An effect cannot be detected
+at p < 0.0001 *and* be below the detection floor. The floor was wrong.
+
+The loop's own bootstrap CI already contains the right number. For a 95% percentile CI on
+the mean paired difference, `width = 2 · 1.96 · sd_diff / √n`, so
+
+```
+MDE = (1.96 + 0.8416) · sd_diff / √n  =  0.715 · CI_width      (independent of n)
+```
+
+| stratum | n | analytic MDE (quoted for 3 rounds) | **measured MDE** |
+|---|---|---|---|
+| synthesis | 2,179 | 0.0270 | **0.0052** |
+| claim | 7,056 | 0.0167 | **0.0068** |
+| concept | 533 | 0.0553 | not run this round |
+| identifier | 335 | 0.0600 | not run this round |
+
+Roughly **5× better** on the strata that ran. `build_journey_data.power_table()` now emits
+both, labelled, and falls back to the analytic figure for strata with no run.
+
+⚠️ **A bug introduced while fixing this, worth recording.** Ledger entries did not name
+their stratum, so the empirical sd was matched by query count. At a 25% tolerance,
+`identifier` (dev ≈ 235) matched the `concept` iteration (n = 252) and reported concept's
+variance as identifier's. Tightened to 5%, and `improve_loop` now writes the stratum into
+the ledger. Guessing an identity from a coincidence of size is the same class of error as
+§6.5's stratified sample: a match that is *probably* right is not a match.
+
+#### The corpus tripled again, and every stratum grew with it
+
+| | round 2 | round 3 |
+|---|---|---|
+| documents | 1,754 | **3,166** |
+| passages | 105,250 | **180,850** |
+| citation contexts | 82,094 | **142,307** |
+| claim queries | 3,998 | **7,056** |
+| synthesis queries | 1,272 | **2,179** |
+| concept queries | 373 | **533** |
+| identifier queries | 223 | **335** |
+
+Concept finally recovered past its pre-pruning 426. The snowball counter went *up* to
+88,098 missing PMIDs despite ingesting 1,412 papers: a larger corpus surfaces more distinct
+citations than it consumes. What fell is the out-of-corpus rate, 85.2% → 80.5% → **79.8%**.
+
+#### The hybrid got MORE valuable on a cleaner corpus, not less
+
+Re-run on 7,056 queries over the 3,166-document full-text corpus:
+
+| system | nDCG@10 | recall@10 | mrr | Δ vs BM25 | 95% CI |
+|---|---|---|---|---|---|
+| bm25 | 0.4513 | 0.6058 | 0.4063 | | |
+| openai | 0.4813 | 0.6335 | 0.4370 | +0.0300 | [+0.0214, +0.0387] |
+| **hybrid-openai** | **0.5262** | **0.6806** | **0.4809** | **+0.0749** | [+0.0686, +0.0811] |
+
+The prediction worth recording is that this could have gone the other way: a full-text
+corpus gives BM25 more to match on, so the dense arm's margin might have narrowed. It
+**widened**, +0.0241 → +0.0749. An abstract gives a dense model little beyond what BM25
+already sees, so pruning 736 abstract-only records raised the dense arm's ceiling.
+
+#### `tri_fusion`: fusing the two dense arms beats either, and cancels MedCPT's regression
+
+Round 2 left MedCPT as a *trade*: +0.0261 synthesis coverage, −0.0166 claim attribution.
+`tri_fusion` runs BM25 + openai-768 + MedCPT as three RRF arms rather than choosing.
+
+| stratum | metric | Δ tri_fusion | p |
+|---|---|---|---|
+| synthesis | recall@20 | **+0.0305** | 0.0000 |
+| claim | mrr | **+0.0321** | 0.0000 |
+
+Every metric on both strata improves significantly, `unjudged@10` falls on both, and
+**MedCPT's −0.0166 claim regression becomes +0.0321** — a +0.049 swing. Complementary
+failure modes are the textbook precondition for fusion beating its arms, and here it did.
+
+**Fusing beats routing, decisively, and that is the more interesting result.**
+`route_by_shape` sends 4-15 word queries to MedCPT and the rest to openai-768, which is the
+per-stratum measurement applied per query. Its predicted synthesis effect was *derived*
+before the run from the routing bands (68.4% of synthesis reaches MedCPT × its +0.0261 =
++0.0179, so `min_effect` was registered at 0.015, not a round 0.02 the mechanism could not
+produce). It delivered **+0.0083** and was discarded. So MedCPT's advantage is **not**
+localised to the queries a length heuristic would hand it: giving every query both arms is
+worth more than giving each query its measured-better arm.
+
+⚠️ **Two things this does NOT yet establish, and both are registered for round 4.**
+
+1. **Weight, not model.** Three arms at equal weight also moves lexical:dense from 1:1 to
+   1:2, because the dense side now has two votes. This project has already measured that
+   the ratio matters (`dense_only` regressed concept; `adaptive_weights` regressed both
+   ways). `tri_fusion_balanced` weights BM25 2× to restore 1:1. If the gain survives it is
+   MedCPT; if it collapses, tri_fusion measured a weight change and named it a model.
+2. **Arm count, not content.** Three RRF voters may beat two for reasons unrelated to the
+   third voter. `dual_dense` adds the same OpenAI model at a second width, carrying almost
+   no new information, and is **registered as predicted to fail**. If it matches
+   tri_fusion, the fusion geometry is doing the work and the hosted-MedCPT cost buys
+   nothing.
+
+Also unfinished: concept and identifier were not evaluated in round 3, so the Pareto rule
+is satisfied on **two of four** strata, and the locked `test` split remains unspent.
+`tri_fusion` is promoted on dev, not shipped.
+
+**On the hypothesis ledger.** `tri_fusion` registered claim as a NULL stratum and claim
+improved by +0.0321, well past its 0.02 threshold. That is a violated prediction, and
+`classify()` records it as **SURPRISE** rather than success. The direction being favourable
+does not change what it is: an unpredicted significant effect is the single most likely
+thing to be a multiple-comparisons artifact, and it becomes round 4's hypothesis rather
+than round 3's win.
+
 ### 4.9 Environment facts learned the expensive way
 
 | Fact | Consequence |
@@ -836,9 +951,16 @@ Read `docs/MEASUREMENT.md`. The short version of what protects this:
   taken, which drives alpha to 0.05/38 and guarantees Type II errors. The locked test split
   is the real defence against cumulative overfitting.
 
-**Status of the loop.** Round 2 has been run (§4.13). One candidate is promoted **on dev**:
-`openai_768`. Nothing has been shipped — promotion requires clearing the Pareto rule across
-every stratum, and the locked `test` split is still unspent.
+**Status of the loop.** Round 3 has been run (§4.14). `tri_fusion` is promoted **on dev**
+for both strata it was measured on (synthesis +0.0305, claim +0.0321, both p<0.0001), and
+`openai_768` and `route_by_shape` are promoted on claim. Nothing has shipped: concept and
+identifier were not evaluated, two controls that would attribute tri_fusion's gain have not
+run, and the locked `test` split is unspent.
+
+⚠️ **The MDE figures quoted in §4.8 and §4.10 are too pessimistic.** They use the metric's
+own standard deviation; the tests are paired, and the measured floors are roughly 5× lower
+(§4.14). "Evaluation power is the bottleneck" was true but overstated by the instrument
+that was supposed to measure it.
 
 The older note here said the loop had "never been run, deliberately" because benchmark
 defects were open. Those defects were real and several more were found in the running of it

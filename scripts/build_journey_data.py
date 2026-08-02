@@ -332,6 +332,54 @@ def build(now_iso: str) -> dict:
     }
 
 
+def empirical_sd(ddir: Path) -> dict[int, float]:
+    """Paired-difference sd per evaluated stratum, read from the loop's own bootstrap CIs.
+
+    **Why the analytic estimate below is wrong, and always in the same direction.** The
+    obvious MDE takes the standard deviation of the METRIC. But every test here is
+    *paired*: the quantity whose spread matters is the per-query DIFFERENCE between two
+    systems, and most queries return an identical ranking under both, so that difference
+    is far tighter than the metric itself. Using the metric's sd therefore overstates the
+    minimum detectable effect, and this project has spent three rounds calling itself
+    blinder than it is.
+
+    The run that exposed it: ``route_by_shape`` moved claim ``mrr`` by **+0.0105 at
+    p < 0.0001**. The analytic table put that stratum's floor at 0.0167. An effect cannot
+    be detected at p < 0.0001 and be below the detection floor, so the floor was wrong.
+
+    A 95% percentile-bootstrap CI on the mean paired difference already contains the right
+    number: ``width = 2 * 1.96 * sd_diff / sqrt(n)``, so ``sd_diff = width * sqrt(n) /
+    3.92`` and the MDE collapses to ``(1.96 + 0.8416) / 3.92 * width ~= 0.715 * width``,
+    independent of n. Keyed by ``n_queries`` because that identifies which stratum an
+    iteration ran on.
+    """
+    path = ddir / "improve_ledger.json"
+    if not path.exists():
+        return {}
+    try:
+        ledger = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict[int, float] = {}
+    for entry in ledger:
+        n = entry.get("n_queries") or 0
+        # Newer entries name their stratum; older ones predate that field and are matched
+        # by query count instead. Keyed on n either way so both work.
+        for v in entry.get("verdicts", []):
+            for d in (v.get("deltas") or {}).values():
+                ci = d.get("ci")
+                if not ci or d.get("n") in (None, 0):
+                    continue
+                width = float(ci[1]) - float(ci[0])
+                if width <= 0:
+                    continue
+                # Narrowest CI seen for this stratum is the best variance estimate,
+                # since a wider one usually means a metric with more spread.
+                sd = width * (float(d["n"]) ** 0.5) / 3.919928
+                out[n] = min(out.get(n, sd), sd)
+    return out
+
+
 def power_table(ddir: Path) -> list[dict]:
     """Per-stratum sample size and the smallest effect that size can actually detect.
 
@@ -341,8 +389,10 @@ def power_table(ddir: Path) -> list[dict]:
     is what lets a reader tell a negative result from a blind one, and it is the single
     number this project has been most wrong about historically.
 
-    The metric per stratum is binary (``success@k``, ``recall@20`` on small answer sets),
-    so the standard deviation follows from the observed rate and no prior run is needed.
+    Two estimates are emitted. ``mde_analytic`` assumes the paired difference is as spread
+    out as the metric itself, which is conservative and is what earlier rounds quoted.
+    ``mde`` uses the observed bootstrap CI when the loop has actually run on that stratum
+    (see ``empirical_sd``), and is roughly half the analytic figure.
     """
     from oncolens.eval.stats import detectable_effect
     from oncolens.eval.weighting import PRIMARY_METRIC, STRATUM_WEIGHTS
@@ -361,6 +411,7 @@ def power_table(ddir: Path) -> list[dict]:
     # Baselines observed on the dev split; used only to derive the Bernoulli sd, so a
     # rough value changes the MDE very little.
     baseline = {"synthesis": 0.2812, "concept": 0.7063, "identifier": 0.1899, "claim": 0.4950}
+    emp = empirical_sd(ddir)
     out = []
     for s in ("synthesis", "concept", "identifier", "claim"):
         n = sizes.get(s, 0)
@@ -368,14 +419,35 @@ def power_table(ddir: Path) -> list[dict]:
             continue
         p = baseline.get(s, 0.5)
         sd = (p * (1 - p)) ** 0.5
+        analytic = detectable_effect(n, sd, alpha=0.05)
+
+        # The loop evaluates the dev split, ~70% of the stratum. Match the ledger entry by
+        # query count, TIGHTLY.
+        #
+        # A generous tolerance silently mis-attributes: at 25% it matched identifier
+        # (dev ~235) to the concept iteration (n=252) and reported concept's variance as
+        # identifier's. 5% keeps the unambiguous matches (claim 4939 vs 5000, synthesis
+        # 1525 vs 1487) and correctly refuses the strata this round did not evaluate,
+        # which then fall back to the conservative analytic figure. Reporting a
+        # conservative floor is a much smaller error than reporting another stratum's.
+        dev_n = round(n * 0.7)
+        best = min(emp, key=lambda k: abs(k - dev_n), default=None)
+        measured = None
+        if best is not None and abs(best - dev_n) <= 0.05 * dev_n:
+            measured = detectable_effect(best, emp[best], alpha=0.05)
+
+        mde = measured if measured is not None else analytic
         out.append({
             "stratum": s,
             "queries": n,
             "judgments": judged.get(s, 0),
             "weight": STRATUM_WEIGHTS.get(s),
             "gate_metric": PRIMARY_METRIC.get(s),
-            "mde": round(detectable_effect(n, sd, alpha=0.05), 4),
-            "sees_002": bool(detectable_effect(n, sd, alpha=0.05) <= 0.02),
+            "mde": round(mde, 4),
+            "mde_analytic": round(analytic, 4),
+            "mde_source": "measured from paired bootstrap CI" if measured is not None
+                          else "analytic, conservative: no run on this stratum yet",
+            "sees_002": bool(mde <= 0.02),
         })
     return out
 

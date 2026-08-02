@@ -804,7 +804,11 @@ def main() -> int:
             prior = json.loads(out.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
             prior = []
-    prior.append({"split": split, "n_queries": len(queries),
+    # RECORD THE STRATUM. Without it a consumer has to guess which stratum an iteration
+    # ran on from its query count, and two strata whose dev splits are ~235 and ~252
+    # queries are not distinguishable that way: build_journey_data duly reported one
+    # stratum's measured variance as another's.
+    prior.append({"split": split, "stratum": args.stratum, "n_queries": len(queries),
                   "baseline": {m: mean_of(base, m) for m in M.CONSENSUS_METRICS},
                   "verdicts": [v.__dict__ for v in ledger]})
     out.write_text(json.dumps(prior, indent=2, default=str), encoding="utf-8")

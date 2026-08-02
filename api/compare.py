@@ -22,8 +22,20 @@ sys.path.insert(0, str(_ROOT / "src"))
 class handler(BaseHTTPRequestHandler):  # noqa: N801
     def do_GET(self):  # noqa: N802
         p = parse_qs(urlparse(self.path).query)
+
+        # ?catalog=1 answers "which dimensions can this compare?" without running one, so
+        # the UI can offer all eight instead of the four it used to hardcode.
+        if (p.get("catalog") or [""])[0]:
+            try:
+                from oncolens.serve.live_query import aspect_catalogue
+                return self._send(200, {"aspects": aspect_catalogue()})
+            except ImportError as e:
+                return self._send(503, {"error": "server package not available",
+                                        "detail": str(e)[:200]})
+
         q = (p.get("q") or [""])[0].strip()
-        if not q:
+        docs = tuple(d for d in (p.get("doc") or []) if d)
+        if not q and not docs:
             return self._send(400, {"error": "missing required query parameter 'q'"})
         try:
             n = max(2, min(10, int((p.get("n") or ["5"])[0])))
@@ -51,7 +63,8 @@ class handler(BaseHTTPRequestHandler):  # noqa: N801
                        "Production environment, then redeploy",
             })
         try:
-            return self._send(200, compare(live, q, n_papers=n, aspect_keys=aspects))
+            return self._send(200, compare(live, q, n_papers=n, aspect_keys=aspects,
+                                           doc_ids=docs or None))
         except EmbeddingMismatch as e:
             return self._send(503, {"error": "index/query embedding mismatch",
                                     "detail": str(e)[:400]})

@@ -29,6 +29,8 @@ type Result = {
  * shape is an interface; drifting from it silently produces a UI that is confidently wrong.
  */
 type Aspect = { key: string; label: string; numeric: boolean };
+/** From /api/compare?catalog=1 — every dimension, not just the four defaults. */
+type CatalogAspect = Aspect & { question: string; default: boolean };
 type Cell = {
   reported: boolean; chunk_id?: string; section?: string;
   start_char?: number; end_char?: number; text?: string | null; score?: number;
@@ -102,9 +104,20 @@ export default function Page() {
   const [ranQuery, setRanQuery] = useState("");
   /** Server-side notes, e.g. "no passage contains your search terms". */
   const [noLexical, setNoLexical] = useState<string[]>([]);
+  /** All comparable dimensions, fetched once. Eight exist; four used to be reachable. */
+  const [catalog, setCatalog] = useState<CatalogAspect[]>([]);
+  const [chosenAspects, setChosenAspects] = useState<string[]>([]);
 
   useEffect(() => {
     fetch("/api/evaluate").then((r) => r.json()).then(setEvalReport).catch(() => {});
+    fetch("/api/compare?catalog=1")
+      .then((r) => r.json())
+      .then((d) => {
+        const all: CatalogAspect[] = d.aspects || [];
+        setCatalog(all);
+        setChosenAspects(all.filter((a) => a.default).map((a) => a.key));
+      })
+      .catch(() => {});
   }, []);
 
   /**
@@ -150,9 +163,10 @@ export default function Page() {
     setNoLexical([]);
     setRanQuery(query);
     try {
+      const aspectQs = chosenAspects.map((a) => `&aspect=${encodeURIComponent(a)}`).join("");
       const url = forMode === "search"
         ? `/api/search?q=${encodeURIComponent(query)}&k=10`
-        : `/api/compare?q=${encodeURIComponent(query)}&n=5`;
+        : `/api/compare?q=${encodeURIComponent(query)}&n=5${aspectQs}`;
       const r = await fetch(url);
       // Read as TEXT first. A gateway timeout or a cold-start failure returns an HTML
       // error page, and calling r.json() on it throws "Unexpected token '<'", which reads
@@ -193,7 +207,7 @@ export default function Page() {
     } finally {
       if (mine === seqRef.current) setLoading(false);
     }
-  }, [query, mode]);
+  }, [query, mode, chosenAspects]);
 
   const floorGap = useMemo(() => {
     if (!evalReport?.metrics || !evalReport?.floor) return null;
@@ -265,8 +279,68 @@ export default function Page() {
               </span>
             </button>
           </div>
+          {/* Eight dimensions are defined and four were reachable, because the client
+              hardcoded the defaults and never sent ?aspect= even though the endpoint has
+              always parsed it. `resistance` was among the unreachable four, in an
+              oncology tool whose own placeholder invites resistance questions. */}
+          {mode === "compare" && catalog.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                dimensions to compare
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {catalog.map((a) => {
+                  const on = chosenAspects.includes(a.key);
+                  return (
+                    <button
+                      key={a.key}
+                      title={a.question}
+                      onClick={() => setChosenAspects((cur) =>
+                        cur.includes(a.key) ? cur.filter((k) => k !== a.key) : [...cur, a.key])}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                        on
+                          ? "border-teal/50 bg-teal/15 text-teal"
+                          : "border-edge text-slate-500 hover:border-white/25 hover:text-slate-300"
+                      }`}
+                    >
+                      {a.label}
+                      {a.numeric && <span className="ml-1 opacity-60">#</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              {chosenAspects.length === 0 && (
+                <p className="mt-1.5 text-[11px] text-amber-300/70">
+                  Pick at least one dimension, or the default four are used.
+                </p>
+              )}
+            </div>
+          )}
           {error && <p className="mt-3 text-xs text-accent">{error}</p>}
         </div>
+
+        {/* A compare does an embedding round trip, a hybrid query, and one full-text
+            query PER ASPECT sequentially, plus a possible cold start. The page used to
+            clear itself and shrink the button to a 14px ellipsis, which is
+            indistinguishable from a failure, so users re-click and reload and buy another
+            cold start. Say what is happening and roughly how much of it there is. */}
+        {loading && (
+          <div className="mt-8 space-y-3" aria-live="polite">
+            <p className="text-xs text-slate-500">
+              {mode === "compare"
+                ? `Filling ${Math.max(chosenAspects.length, 4)} dimensions across 5 papers. The first query after an idle period also wakes the database.`
+                : "Searching 180,000 passages…"}
+            </p>
+            {Array.from({ length: mode === "compare" ? 3 : 4 }).map((_, i) => (
+              <div key={i} className="animate-pulse rounded-xl border border-edge bg-surface p-5">
+                <div className="h-3.5 w-2/3 rounded bg-white/10" />
+                <div className="mt-3 h-2.5 w-1/3 rounded bg-white/5" />
+                <div className="mt-4 h-2.5 w-full rounded bg-white/5" />
+                <div className="mt-2 h-2.5 w-5/6 rounded bg-white/5" />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* ------------------------------------------- transparency strip
             The headline score is shown ONLY when the server confirms the report describes

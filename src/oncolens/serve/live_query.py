@@ -218,8 +218,25 @@ def _cues_to_tsquery(cues: tuple[str, ...]) -> str:
     return " | ".join(uniq)
 
 
+def aspect_catalogue() -> list[dict]:
+    """Every dimension the comparison CAN fill, not just the four it defaults to.
+
+    Eight aspects are defined and four were reachable, because the client hardcoded the
+    default tuple and never sent ``?aspect=`` even though the endpoint has always parsed
+    it. The unreachable four included ``resistance`` — "what mechanism of resistance or
+    escape was identified" — in an oncology tool whose own search placeholder invites
+    exactly that question.
+    """
+    from ..aspects import ASPECTS, DEFAULT_ASPECT_KEYS
+
+    return [{"key": a.key, "label": a.label, "question": a.question,
+             "numeric": a.numeric, "default": a.key in DEFAULT_ASPECT_KEYS}
+            for a in ASPECTS]
+
+
 def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
-            aspect_keys: tuple[str, ...] | None = None) -> dict:
+            aspect_keys: tuple[str, ...] | None = None,
+            doc_ids: tuple[str, ...] | None = None) -> dict:
     """Papers x technical dimensions, every cell carrying its own citation.
 
     **Why this is not just top-k.** Asking "how do these studies measure X" with a plain
@@ -241,10 +258,25 @@ def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
     if not aspects:
         aspects = [ASPECTS_BY_KEY[k] for k in DEFAULT_ASPECT_KEYS]
 
-    top = index.search(query, top_k=n_papers)
-    docs = [r["doc_id"] for r in top["results"]]
-    titles = {r["doc_id"]: r["title"] for r in top["results"]}
-    years = {r["doc_id"]: r.get("year") for r in top["results"]}
+    # EXPLICIT PAPERS BEAT RE-GUESSING THE QUERY. Without this the only way to tabulate
+    # three specific papers was to reword the query until the ranking happened to surface
+    # them, which is not a workflow, it is a slot machine.
+    if doc_ids:
+        conn0 = index.conn()
+        with conn0.cursor() as cur:
+            cur.execute("SELECT doc_id, title, year FROM documents WHERE doc_id = ANY(%s)",
+                        (list(doc_ids),))
+            rows0 = cur.fetchall()
+        found = {r[0]: (r[1], r[2]) for r in rows0}
+        # Preserve the caller's order; drop ids this corpus does not hold.
+        docs = [d for d in doc_ids if d in found]
+        titles = {d: found[d][0] for d in docs}
+        years = {d: found[d][1] for d in docs}
+    else:
+        top = index.search(query, top_k=n_papers)
+        docs = [r["doc_id"] for r in top["results"]]
+        titles = {r["doc_id"]: r["title"] for r in top["results"]}
+        years = {r["doc_id"]: r.get("year") for r in top["results"]}
     if not docs:
         # SAME SHAPE as the success path. This branch previously returned `list(keys)` —
         # a list of strings — where the success path returns {key,label,numeric} objects,
@@ -320,6 +352,9 @@ def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
     return {
         "query": query,
         "aspects": [{"key": a.key, "label": a.label, "numeric": a.numeric} for a in aspects],
+        # The full menu travels with the result so the UI can offer the dimensions it is
+        # not currently showing, rather than hardcoding a subset of a subset.
+        "all_aspects": aspect_catalogue(),
         "doc_ids": docs,
         "titles": titles,
         "years": years,

@@ -138,18 +138,25 @@ CANDIDATES_BY_NAME = {c.name: c for c in CANDIDATES}
 # Evaluation
 # ---------------------------------------------------------------------------
 
-def load_qrels(split: str) -> tuple[dict, dict, dict]:
+def load_qrels(split: str, stratum: str = "claim") -> tuple[dict, dict, dict]:
     """Return (queries, qrels, exclude) for a split.
 
     Splitting is by **citing document**, not by query id. Several queries mined from the
     same paper describe the same body of work in similar language; splitting by id would
     put near-duplicates on both sides and let the loop tune against its own test set.
     """
-    path = local_data_dir() / "qrels_citation.json"
+    path = local_data_dir() / "strata.json"
     if not path.exists():
-        raise SystemExit(f"no qrels at {path}; run scripts/build_citation_labels.py")
+        raise SystemExit(f"no strata at {path}; run scripts/build_strata.py")
     d = json.loads(path.read_text(encoding="utf-8"))
     queries, qrels, exclude = d["queries"], d["qrels"], d.get("exclude", {})
+    strata = d.get("strata", {})
+    if stratum != "all":
+        queries = {k: v for k, v in queries.items() if strata.get(k) == stratum}
+        qrels = {k: v for k, v in qrels.items() if k in queries}
+    # A query with no relevant documents measures nothing here.
+    queries = {k: v for k, v in queries.items() if qrels.get(k)}
+    qrels = {k: v for k, v in qrels.items() if k in queries}
     if split == "all":
         return queries, qrels, exclude
     import hashlib
@@ -216,16 +223,23 @@ class Harness:
 
         per_query: dict[str, dict[str, float]] = {}
         for qi, qid in enumerate(self.qids):
-            runs = []
+            runs, weights = [], []
             if bm25_w > 0:
                 lex_q = exp[qid] if exp else self.queries[qid]
                 runs.append(self.bm25.search(lex_q, k=cand))
+                weights.append(bm25_w)
             if dense_w > 0:
                 sims = self.dvecs @ self.qvecs[qi]
                 top = np.argpartition(-sims, min(cand, len(sims) - 1))[:cand]
                 top = top[np.argsort(-sims[top])]
                 runs.append([(self.chunk_ids[i], float(sims[i])) for i in top])
-            fused = (reciprocal_rank_fusion(runs) if len(runs) > 1 else list(runs[0]))
+                weights.append(dense_w)
+            # The weights MUST reach RRF. Omitting them made bm25_weight control only
+            # whether an arm was included, not how much it counted, so the
+            # `lexical_heavy` candidate produced byte-identical rankings to the baseline
+            # and the loop confidently DISCARDED a change that had never run.
+            fused = (reciprocal_rank_fusion(runs, weights=weights) if len(runs) > 1
+                     else list(runs[0]))
 
             if use_rerank:
                 from oncolens.retrieval.llm_rerank import rerank as llm_rerank
@@ -240,6 +254,8 @@ class Harness:
             ranking = [d for d, _ in docs if d != src][:TOP_K]
             assert_source_excluded(qid, ranking, exclude)
             per_query[qid] = M.evaluate_query(ranking, qrels.get(qid, {}))
+            per_query[qid]["_ranking_hash"] = float(
+                hash(tuple(ranking)) % 1_000_000_007)
         return per_query
 
 
@@ -277,6 +293,17 @@ def judge(name: str, base: dict, cand: dict) -> Verdict:
         elif c.p_value < alpha and c.delta < -MIN_EFFECT:
             regs.append(metric)
 
+    # A candidate whose rankings are identical to the baseline did not run. Reporting
+    # that as "no significant improvement" hides a broken candidate behind a plausible
+    # negative result — which is exactly how a loop launders its own bugs into findings.
+    identical = sum(1 for q in base
+                    if base[q].get("_ranking_hash") == cand.get(q, {}).get("_ranking_hash"))
+    if identical == len(base) and base:
+        return Verdict(name, False,
+                       "NO EFFECT — rankings byte-identical to baseline; the candidate "
+                       "did not fire (check that its config is actually wired through)",
+                       {}, [], [])
+
     unj_base, unj_cand = mean_of(base, "unjudged@10"), mean_of(cand, "unjudged@10")
     unj_delta = unj_cand - unj_base
     deltas["unjudged@10"] = {"delta": unj_delta, "p": None, "ci": None, "n": None}
@@ -303,6 +330,11 @@ def main() -> int:
     ap.add_argument("--run", action="append", default=[])
     ap.add_argument("--run-all", action="store_true")
     ap.add_argument("--split", default="dev", choices=["dev", "test", "all"])
+    ap.add_argument("--stratum", default="claim",
+                    choices=["claim", "concept", "identifier", "all"],
+                    help="MEASURED: claim queries are 27 words, concept 2, identifier 1. "
+                         "Users type the short ones, so a change must be judged on each "
+                         "shape separately rather than on a pooled mean.")
     ap.add_argument("--final-test", action="store_true",
                     help="evaluate the promoted config on the LOCKED test split")
     ap.add_argument("--commit", action="store_true", help="git commit promoted changes")
@@ -322,12 +354,12 @@ def main() -> int:
         return 0
 
     split = "test" if args.final_test else args.split
-    queries, qrels, exclude = load_qrels(split)
+    queries, qrels, exclude = load_qrels(split, args.stratum)
     if args.limit_queries:
         keep = sorted(queries)[: args.limit_queries]
         queries = {k: queries[k] for k in keep}
         qrels = {k: v for k, v in qrels.items() if k in queries}
-    print(f"split={split}  {len(queries)} queries, "
+    print(f"stratum={args.stratum}  split={split}  {len(queries)} queries, "
           f"{sum(len(v) for v in qrels.values())} judgments")
 
     harness = Harness(load_chunks(), queries)

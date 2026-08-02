@@ -729,6 +729,86 @@ capacity and gone off to build a hosted MedCPT endpoint. The powered stratum rev
 stratum that cannot resolve either of them is not weak evidence; it is evidence pointed the
 wrong way.**
 
+#### And then synthesis reversed it back — MedCPT is a trade, not an improvement
+
+`synthesis`, dev, **n=896**, baseline `recall@20` = 0.2812. This is the highest-weighted
+stratum (0.35) and it was **empty** until this round.
+
+| metric | Δ medcpt | p |
+|---|---|---|
+| **recall@20** (gate) | **+0.0261** | **0.0003** |
+| recall@10 | +0.0139 | 0.0157 |
+| success@20 | +0.0335 | 0.0274 |
+| success@10 | +0.0290 | 0.0514 |
+| ndcg@10 | +0.0072 | 0.0856 |
+| unjudged@10 | −0.0057 | — |
+
+**Every metric improves, nothing regresses, and the gate clears at p=0.0003.** So MedCPT
+does have a real, substantial, replicable advantage — on *topical set-coverage* questions.
+`openai_768` gets +0.0016 here (p=0.70): the capacity control does essentially nothing, so
+on this stratum the gain **is** domain training, exactly as originally argued.
+
+**The full picture across strata is coherent and it is a trade:**
+
+| stratum | weight | task | Δ medcpt | Δ openai_768 |
+|---|---|---|---|---|
+| synthesis | 0.35 | coverage of a paper SET | **+0.0261** ✓ p=0.0003 | +0.0016 |
+| concept | 0.30 | 2-word topical lookup | +0.0198 (blind) | +0.0079 (blind) |
+| claim | 0.15 | find the ONE source of a sentence | **−0.0166** ✗ p=0.0034 | **+0.0093** ✓ p=0.0024 |
+
+MedCPT is a better **topical matcher** and a worse **pinpointer**. That is what training on
+click logs buys: click data encodes "this article is about what you asked", not "this is the
+exact sentence you are looking for". Synthesis rewards the first; claim — a verbatim 28-word
+sentence whose answer is one specific paper — rewards the second, and the smoothing that
+helps topical recall actively costs exact attribution.
+
+#### The composite and the Pareto rule disagree, and the Pareto rule is right
+
+Weighted composite of the observed deltas (§4.8 weights, identifier not run):
+
+* **medcpt**: 0.35(+0.0261) + 0.30(+0.0198) + 0.15(−0.0166) = **+0.0126**
+* **openai_768**: 0.35(+0.0016) + 0.30(+0.0079) + 0.15(+0.0093) = **+0.0043**
+
+**By the composite MedCPT wins by ~3×.** By dominance it is refused, because it
+significantly regresses `claim`. `openai_768` improves one stratum significantly and
+regresses none, so it is the one that can ship.
+
+This is the concrete case §4.8 was written for — "allocating attention with invented weights
+is legitimate; deciding what ships with them is not". A weighted average would have bought a
++0.026 gain on literature-review coverage with a −0.017 loss on find-the-source, and called
+it progress. Those are different jobs for the same user, and the weights that trade them off
+were chosen by us, not measured.
+
+**What to actually do with MedCPT.** It is not dead — it is a *query-type-conditional* win,
+which is a real finding and the right hypothesis for round 3: route synthesis-shaped queries
+to MedCPT and leave everything else on the servable arm. That is testable, and unlike
+"swap the dense arm globally" it does not require the whole index to move to 768 dims.
+
+#### A third candidate that could not affect the metric it was judged on
+
+`mmr_diversify` returned **NO_EFFECT — rankings byte-identical to baseline**. Not a weak
+effect: identical, on all eight metrics, across all 896 queries.
+
+The cause is structural. `_cap_per_document` *reorders* the passage list and deliberately
+appends capped passages rather than dropping them ("nothing that was retrievable becomes
+unretrievable"). `aggregate_chunks_to_docs(strategy="max")` then sorts each document's
+scores and takes `scores[0]` — a function of the **set** of a document's passage scores, not
+their order. Reordering therefore cannot change any document's score, and cannot change the
+document ranking. MMR under `max` aggregation is a no-op **by construction**.
+
+That is the **third** instance of this exact fault in this project:
+
+1. §4.8 — RRF weights never reached fusion, so `lexical_heavy` was byte-identical.
+2. §4.8 — `rerank_llm` gated on `recall@20`, which reordering the top 24 cannot move.
+3. here — `mmr_diversify` reorders passages, judged on a document metric computed by `max`.
+
+Each time, a candidate was **structurally incapable** of moving its gate, and each time the
+loop was one step away from recording a confident negative result about an idea that never
+ran. The `NO_EFFECT` detector added after (1) is what caught (3). Before proposing a
+candidate, the question to answer is not "will this help?" but **"through what mechanism
+could this change the number I am about to gate it on?"** — and if the answer is not
+immediate, the candidate is not ready to run.
+
 ### 4.9 Environment facts learned the expensive way
 
 | Fact | Consequence |

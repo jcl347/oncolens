@@ -296,31 +296,47 @@ applied to the wrong family, a gate metric written but never wired in, a `SELECT
 result **reversed the sign** of a conclusion the project had carried since round 1, and no
 further inspection would have found that — only data did.
 
-**The headline: the cheap change beat the expensive one, and the expensive one is worse
-than doing nothing.**
+**The headline: MedCPT is a trade, not an improvement — and the composite score would have
+shipped it anyway.**
 
 `medcpt` swaps the dense arm for NCBI's MedCPT, trained on 255M PubMed click logs.
 `openai_768` is its **control** — the same general embedder widened to the same 768
-dimensions — so that a MedCPT win could not be confused with simply having four times the
-vector capacity. On the `claim` stratum (n=2,887, the only one with the power to resolve a
-0.02 effect):
+dimensions — so a MedCPT win could not be confused with having four times the vector
+capacity.
 
-| candidate | mrr | verdict |
-|---|---|---|
-| **medcpt** | **−0.0166** (p=0.0034) | significant **regression**, incl. success@1 −0.0236 |
-| **openai_768** | **+0.0093** (p=0.0024) | **promoted** — 4/5 metrics up, none down |
+| stratum | weight | the task | Δ medcpt | Δ openai_768 |
+|---|---|---|---|---|
+| synthesis (n=896) | 0.35 | coverage of a paper **set** | **+0.0261** ✓ p=0.0003 | +0.0016 |
+| concept (n=252) | 0.30 | 2-word topical lookup | +0.0198 *(MDE 0.066 — blind)* | +0.0079 *(blind)* |
+| claim (n=2,887) | 0.15 | find the **one** source of a sentence | **−0.0166** ✗ p=0.0034 | **+0.0093** ✓ p=0.0024 |
 
-MedCPT's registered hypothesis called `claim` a *null* stratum. It did not merely fail to
-be null; it significantly regressed — which follows from MedCPT's own rationale read
-honestly, since it was fitted on **short** queries and claim queries are 28-word sentences.
+MedCPT is a better **topical matcher** and a worse **pinpointer**. Click logs encode "this
+article is about what you asked", not "this is the exact sentence you want" — so it wins
+literature-review coverage and loses find-the-source, where the same smoothing costs exact
+attribution. Its registered hypothesis called `claim` a *null* stratum; it significantly
+regressed there instead.
 
-On the underpowered `concept` stratum (MDE 0.066) MedCPT *looked* better than the control
-(+0.0198 vs +0.0079). A loop that stopped there would have concluded domain training beats
-capacity and gone off to build a hosted MedCPT endpoint — 768-dim vectors, ~2 GB of torch,
-a schema change off `vector(192)`, and inference that does not fit a Vercel function.
+**The composite and the dominance rule disagree, and the dominance rule wins.** Weighting
+those deltas gives medcpt **+0.0126** against openai_768's **+0.0043** — a 3× "win". But
+promotion here is by Pareto dominance: improve at least one stratum, worsen none. MedCPT
+regresses `claim`, so it is refused; `openai_768` is not. A weighted average would have
+bought +0.026 on review coverage with −0.017 on find-the-source and called it progress.
+Those are different jobs for the same user, and the weights trading them off were chosen by
+us, not measured.
 
-⚠️ `openai_768` is promoted on **dev only**. Shipping requires clearing the Pareto rule on
-every stratum and spending the locked `test` split, neither of which has happened.
+MedCPT is not dead — it is a **query-type-conditional** win, which is the hypothesis for
+round 3: route synthesis-shaped queries to it, leave the rest on the servable arm. That
+avoids moving the whole index to 768 dims, ~2 GB of torch, and inference that does not fit
+a Vercel function.
+
+⚠️ `openai_768` is promoted on **dev only**. Shipping still requires the locked `test`
+split, which is unspent.
+
+A third candidate, `mmr_diversify`, returned **NO_EFFECT — byte-identical rankings on all
+eight metrics**. It reorders passages, but document scores are aggregated by `max`, which
+depends on the *set* of a document's passage scores and not their order — so it is a no-op
+by construction. That is the third time in this project a candidate has been structurally
+incapable of moving the metric it was gated on.
 
 **What made the difference was data, not cleverness.** Expanding the corpus along its own
 citation graph took the labelled set from 2,225 to 3,998 claim queries and 0 to 1,272

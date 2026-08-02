@@ -196,11 +196,18 @@ def evaluate_query(ranking: Sequence[str], judgments: Mapping[str, int]) -> dict
         return out
 
     for k in PANEL_K:
-        for name, fn in (("recall", recall_at_k), ("precision", precision_at_k), ("ndcg", ndcg_at_k)):
+        for name, fn in (("recall", recall_at_k), ("precision", precision_at_k),
+                         ("ndcg", ndcg_at_k), ("success", success_at_k)):
             v = fn(ranking, judgments, k)
             if v is not None:
                 out[f"{name}@{k}"] = v
         out[f"unjudged@{k}"] = unjudged_at_k(ranking, judgments, k)
+
+    # The rank itself, so the panel can be audited rather than only aggregated. Absent
+    # when the relevant document never appeared — NOT zero, which would read as rank 0.
+    r = first_relevant_rank(ranking, judgments)
+    if r is not None:
+        out["first_rel_rank"] = float(r)
 
     for name, fn in (("mrr", mrr), ("map", average_precision), ("bpref", bpref)):
         v = fn(ranking, judgments)
@@ -209,7 +216,52 @@ def evaluate_query(ranking: Sequence[str], judgments: Mapping[str, int]) -> dict
     return out
 
 
-#: Metrics that must move *together* for the promotion gate to call a change a real
-#: improvement rather than a metric-specific artifact. Chosen to span set-based recall,
-#: graded ranking quality, early precision, and incomplete-judgment robustness.
-CONSENSUS_METRICS = ("ndcg@10", "recall@10", "recall@20", "map", "mrr", "bpref")
+def first_relevant_rank(ranking: Sequence[str], judgments: Mapping[str, int],
+                        threshold: int = REL_THRESHOLD) -> int | None:
+    """1-based rank of the first relevant document, or None if it never appears.
+
+    On a **sparse-judgment** benchmark this single number determines the entire panel, so
+    it is worth reporting directly rather than only through transforms of it.
+    """
+    rel = _relevant_ids(judgments, threshold)
+    if not rel:
+        return None
+    for i, doc in enumerate(ranking, start=1):
+        if doc in rel:
+            return i
+    return None
+
+
+def success_at_k(ranking: Sequence[str], judgments: Mapping[str, int], k: int) -> float | None:
+    """Did any relevant document reach the top *k*?
+
+    Identical to ``recall@k`` when exactly one document is judged relevant — which is
+    91.2% of queries in the citation benchmark — but named for what it means to a user:
+    *was the right paper on the screen*.
+    """
+    if not _relevant_ids(judgments):
+        return None
+    r = first_relevant_rank(ranking, judgments)
+    return 1.0 if (r is not None and r <= k) else 0.0
+
+
+#: Metrics that must move *together* for the promotion gate to call a change real.
+#:
+#: ⚠️ **This panel is only as independent as the judgments allow.** The original set —
+#: ndcg@10, recall@10, recall@20, map, mrr, bpref — looked like six votes, and on a densely
+#: judged benchmark it would be. On the citation benchmark, where 91.2% of queries have
+#: exactly ONE judged document, it is not:
+#:
+#:   * ``recall@k`` and ``success@k`` are the same quantity
+#:   * ``ndcg@10``, ``mrr`` and ``map`` are all monotone transforms of the same rank
+#:   * ``bpref`` returns None below 10 judged negatives
+#:
+#: So "≥4 of 6 agree" could be satisfied by a single rank improvement counted three times.
+#: The panel below instead spans different **aggregations of the rank distribution**, which
+#: genuinely can disagree: a change may raise the mean rank while pushing some queries out
+#: of the top 10 entirely. One rank-sensitive metric is kept, not three.
+CONSENSUS_METRICS = ("mrr", "success@1", "success@5", "success@10", "success@20")
+
+#: Reported but never voted on: a diagnostic, not an objective. Optimising it directly
+#: would mean preferring documents that happen to have been judged.
+DIAGNOSTIC_METRICS = ("unjudged@10", "ndcg@10")

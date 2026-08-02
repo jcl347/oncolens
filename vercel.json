@@ -15,11 +15,6 @@
       "memory": 512,
       "maxDuration": 10,
       "includeFiles": "src/**"
-    },
-    "api/setup.py": {
-      "memory": 1024,
-      "maxDuration": 60,
-      "includeFiles": "src/**"
     }
   }
 }

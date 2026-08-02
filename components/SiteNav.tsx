@@ -10,9 +10,8 @@ import { usePathname } from "next/navigation";
  * Pages that cannot be navigated to are, from a user's point of view, not deployed.
  */
 const LINKS = [
-  { href: "/", label: "Search", hint: "find passages and compare papers" },
-  { href: "/journey", label: "Journey", hint: "how it was built and measured" },
-  { href: "/setup", label: "Setup", hint: "storage and index status" },
+  { href: "/", label: "Overview", hint: "how it works, what it scores, and why" },
+  { href: "/search", label: "Search", hint: "find passages and compare papers" },
 ];
 
 export default function SiteNav() {

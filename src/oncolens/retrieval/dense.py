@@ -320,7 +320,14 @@ class MedCPTBackend:
     ARTICLE_MODEL = "ncbi/MedCPT-Article-Encoder"
 
     def __init__(self, batch: int = 32, max_length: int = 256,
-                 dimensions: int | None = None) -> None:
+                 dimensions: int | None = None, gpu_batch: int = 16,
+                 yield_ms: float = 4.0) -> None:
+        #: Deliberately SMALLER than the CPU batch. See _encode: on a laptop whose GPU
+        #: also drives the display, batch size controls whether the desktop stays
+        #: responsive, and 128 froze the machine outright.
+        self.gpu_batch = gpu_batch
+        #: Milliseconds to yield after each batch so the compositor can draw. 0 disables.
+        self.yield_ms = yield_ms
         self.batch = batch
         self.max_length = max_length
         #: Truncation to a shorter width, for a like-for-like comparison against a
@@ -355,6 +362,8 @@ class MedCPTBackend:
         return None
 
     def _encode(self, texts: Sequence[str], which: str) -> np.ndarray:
+        import time
+
         import torch
 
         if which == "q":
@@ -367,8 +376,14 @@ class MedCPTBackend:
             tok, mod = self._a
 
         dev = self._device()
-        # A GPU tolerates a far larger batch, and batch size is most of the throughput.
-        batch_size = self.batch * 4 if dev == "cuda" else self.batch
+        # BATCH SIZE IS A UI-RESPONSIVENESS SETTING ON A LAPTOP, NOT JUST A THROUGHPUT ONE.
+        #
+        # This RTX 4060 also drives the display. A large batch launches a kernel that
+        # occupies the GPU's shaders for long enough to starve the Windows compositor, and
+        # the entire desktop freezes until it finishes — which is what happened at batch
+        # 128. Smaller batches yield to the compositor between launches. The throughput
+        # cost is modest; an unusable machine is not.
+        batch_size = self.gpu_batch if dev == "cuda" else self.batch
         out: list[np.ndarray] = []
         with torch.no_grad():
             for i in range(0, len(texts), batch_size):
@@ -379,7 +394,15 @@ class MedCPTBackend:
                 # MedCPT uses the [CLS] representation, not mean pooling. Substituting
                 # mean pooling would quietly change what the model was trained to produce.
                 vecs = mod(**enc).last_hidden_state[:, 0, :]
-                out.append(vecs.cpu().numpy())
+                # float32, not float64: halves the accumulated host memory for a
+                # 58k x 768 matrix, and the extra precision is meaningless for cosine
+                # similarity on L2-normalised vectors.
+                out.append(vecs.cpu().numpy().astype(np.float32))
+                if dev == "cuda" and self.yield_ms:
+                    # Hand the GPU back briefly so the desktop compositor can draw a
+                    # frame. Without this the machine is unusable for the whole run.
+                    torch.cuda.synchronize()
+                    time.sleep(self.yield_ms / 1000.0)
         m = np.vstack(out).astype(np.float64)
         if self.dimensions:
             m = m[:, : self.dimensions]

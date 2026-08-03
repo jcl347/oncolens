@@ -1265,10 +1265,42 @@ Combined with the gazetteer miner below:
 | success@1 ceiling | 0.4985 | **1.0000** |
 | queries sharing a string | 63% | **0%** |
 
-⚠️ **Scores will jump, and the jump is not a retrieval improvement.** Any comparison across
-this change is invalid. The two expansion refutations above were measured on the broken
-benchmark, so they are **not settled** — the candidates are unchanged, the instrument was
-wrong, and §5's rule applies: fix the harness and re-run.
+⚠️ **Scores will jump, and the jump is not a retrieval improvement.** Baseline `success@1`
+went 0.1483 → **0.2460** the moment the stratum was fixed, with no change to retrieval at
+all. Any comparison across this change is invalid.
+
+#### Re-run on the corrected stratum: both candidates refuted, with power
+
+The two refutations above were measured on the broken benchmark, so §5's rule applied —
+fix the harness and re-run. Re-run at n=1,325 dev queries (5.6× the power, ceiling 1.0),
+with **94.4%** of queries gaining synonyms (1,251/1,325):
+
+| | success@1 | success@5 | mrr | success@10 | success@20 |
+|---|---|---|---|---|---|
+| baseline | 0.2460 | 0.4694 | 0.3480 | 0.5623 | 0.6279 |
+| `expand_ontology` | **−0.0242** p=.0037 | −0.0325 p=.0001 | −0.0315 p<.0001 | −0.0460 p<.0001 | −0.0453 p<.0001 |
+| `expand_identity_weighted` | **−0.0189** p=.0183 | −0.0204 p=.0118 | −0.0254 p<.0001 | −0.0385 p<.0001 | −0.0279 p=.0011 |
+
+**Every metric, both candidates, all significant.** The pre-registration said two failures
+on the same mechanism retires the thread rather than inviting a third parameter sweep, and
+this is now that result on an instrument known to be sound.
+
+**The mechanism, which generalises past this project.** Identifier queries *are* high-IDF
+exact literals. BM25 gives a rare token enormous weight precisely because it is rare —
+that is what makes `UACC-812` findable at all. Injecting synonyms, **even correct ones**,
+spreads the query's scoring mass across terms that are individually less discriminating.
+And the regression **grows with k** (−0.019 at rank 1, −0.039 at rank 10), so this is not
+reordering the head: it is pulling genuinely wrong documents into the top 20.
+
+So the finding is not "the expansion was bad". Coverage was 94.4%, the senses were right,
+`Placebo` was filtered, association links were separated from identity, and the user's own
+words were weighted 3×. **For a query that is already maximally specific, expansion has no
+upside to trade for.** §4.4's rule — a wrong expansion costs more than a missing one —
+turns out to have a stronger form: on this query class, *any* expansion costs more than no
+expansion.
+
+⚠️ This says nothing about expansion on `concept` or `synthesis`, where queries are short
+topical phrases with genuine vocabulary mismatch. It was never tested there at power.
 
 #### The stratum was small because a regex was mining it
 

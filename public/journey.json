@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-03T16:02:03+00:00",
-  "git_rev": "8544ff5",
+  "generated_at": "2026-08-03T16:44:45+00:00",
+  "git_rev": "5fb1497",
   "live_store_reachable": true,
   "store_error": null,
   "stages": [
@@ -325,7 +325,7 @@
     {
       "id": "retrieval",
       "kicker": "Does any of it help?",
-      "title": "Measured on 2,225 expert-written queries",
+      "title": "Measured on 7,056 expert-written queries",
       "narrative": "Systems are compared on identical queries with a paired permutation test and a bootstrap confidence interval. With this many queries a two-point nDCG gap is still routinely noise, and shipping on a point estimate is how retrieval systems silently get worse.",
       "visual": "bars",
       "systems": [
@@ -366,8 +366,8 @@
           "direction": "up"
         }
       ],
-      "caveat": null,
-      "headline": "Deleting a component was the second-largest win available: BM25 alone beat the lexical+LSA hybrid that shipped, p < 0.0001."
+      "caveat": "These are lower bounds, not absolute quality. 93%-94% of the documents each system returned have never been judged by anyone, because the labels come from citations rather than from an exhaustive pool. The COMPARISON between systems holds - the unjudged rate is near-identical across all three, so none is being flattered - but a single number here is not this system's retrieval quality.",
+      "headline": "The hybrid beats BM25 alone by +0.0749 nDCG@10 on 7,056 queries."
     },
     {
       "id": "storage",
@@ -439,10 +439,10 @@
       "judgments": 6171,
       "weight": 0.2,
       "gate_metric": "success@1",
-      "mde": 0.0255,
+      "mde": 0.0144,
       "mde_analytic": 0.0255,
-      "mde_source": "analytic, conservative: no run on this stratum yet",
-      "sees_002": false
+      "mde_source": "measured from paired bootstrap CI",
+      "sees_002": true
     },
     {
       "stratum": "claim",

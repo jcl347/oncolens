@@ -78,6 +78,22 @@ def live_corpus() -> dict:
     return out
 
 
+def _hybrid_gain(bench: dict) -> float:
+    """nDCG@10 gap between the fused system and BM25 alone.
+
+    Derived from the artifact rather than typed into the headline, because the previous
+    headline described a comparison the table no longer contained: it quoted the round-0
+    result about deleting the LSA arm, while the table beside it listed bm25 / openai /
+    hybrid-openai and no LSA at all.
+    """
+    s = bench.get("systems") or {}
+    hyb = next((v for k, v in s.items() if k.startswith("hybrid")), None)
+    base = s.get("bm25")
+    if not hyb or not base:
+        return 0.0
+    return round((hyb.get("ndcg@10") or 0) - (base.get("ndcg@10") or 0), 4)
+
+
 def read_artifact(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -272,10 +288,16 @@ def build(now_iso: str) -> dict:
     for name, vals in (bench.get("systems") or {}).items():
         sys_rows.append({"system": name, **{k: round(v, 4) for k, v in vals.items()
                                             if isinstance(v, (int, float))}})
+    # The query count is READ, not written here. A hardcoded "2,225 expert-written
+    # queries" sat in this title while the metric directly beneath it reported the real
+    # figure from the artifact, so the same card contradicted itself as the benchmark grew.
+    n_bench = bench.get("n_queries", n_queries)
+    unjudged = [v.get("unjudged@10") for v in (bench.get("systems") or {}).values()
+                if isinstance(v.get("unjudged@10"), (int, float))]
     stages.append({
         "id": "retrieval",
         "kicker": "Does any of it help?",
-        "title": "Measured on 2,225 expert-written queries",
+        "title": f"Measured on {n_bench:,} expert-written queries",
         "narrative":
             "Systems are compared on identical queries with a paired permutation test and "
             "a bootstrap confidence interval. With this many queries a two-point nDCG gap "
@@ -284,16 +306,29 @@ def build(now_iso: str) -> dict:
         "visual": "bars",
         "systems": sys_rows,
         "metrics": [
-            metric("Queries evaluated", bench.get("n_queries", n_queries),
+            metric("Queries evaluated", n_bench,
                    provenance="artifact", command="scripts/bench_retrieval.py"),
         ],
+        # The caveat used to appear ONLY when there was no data, which is backwards: the
+        # case that needs a warning is the one where numbers ARE on screen. At
+        # unjudged@10 around 0.93 these are lower bounds of unknown size, and the notes
+        # forbid quoting an absolute number from this benchmark as "the" retrieval quality.
         "caveat":
-            None
+            (f"These are lower bounds, not absolute quality. {min(unjudged):.0%}-"
+             f"{max(unjudged):.0%} of the documents each system returned have never been "
+             f"judged by anyone, because the labels come from citations rather than from "
+             f"an exhaustive pool. The COMPARISON between systems holds - the unjudged "
+             f"rate is near-identical across all three, so none is being flattered - but "
+             f"a single number here is not this system's retrieval quality."
+             if unjudged else
+             "Judgment coverage was not recorded for this run, so these numbers cannot be "
+             "read as absolute quality.")
             if sys_rows else
             "The benchmark has not been run against this index. No numbers are shown, "
             "rather than stale ones.",
-        "headline": ("Deleting a component was the second-largest win available: BM25 alone "
-                     "beat the lexical+LSA hybrid that shipped, p < 0.0001.") if sys_rows else None,
+        "headline": (f"The hybrid beats BM25 alone by "
+                     f"{_hybrid_gain(bench):+.4f} nDCG@10 on {n_bench:,} queries."
+                     if sys_rows else None),
     })
 
     # ------------------------------------------------------------ 8. storage

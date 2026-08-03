@@ -175,11 +175,15 @@ const QUERY_TYPES = [
     example: "Cytokine Release Syndrome",
   },
   {
+    // NOT only genes, which is a measured correction rather than a wording change. The
+    // stratum is 103 protein, 70 clinical trial, 39 gene, 28 variant, 22 cell line and
+    // 5 drug concepts; a component built on the assumption that it was genes covered an
+    // eighth of it.
     name: "identifier",
-    shape: "bare gene / variant",
+    shape: "bare gene, drug, cell line or trial",
     judge: "citing author",
     scored: "success@1 · exact lookup",
-    example: "LAG-3",
+    example: "EGFR T790M",
   },
   {
     name: "claim",
@@ -487,10 +491,11 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
                 The set was grown along its own citation graph. Starting from MeSH-seeded
                 oncology searches, the papers those papers cite were ingested too, screened
                 against NLM&apos;s MeSH tree so the corpus stays oncology rather than
-                drifting into general molecular biology. About a third of the most-cited
-                candidates fail that screen: they are cited by oncology work without being
-                oncology work, and a further 6% are rejected only because PubMed has never
-                MeSH-indexed them at all.
+                drifting into general molecular biology. Screening the top 9,000 candidates
+                kept 5,389 of them, so <span className="text-slate-200">two in five fail
+                </span>: they are cited by oncology work without being oncology work, and
+                would have drifted the corpus off its subject while every retrieval metric
+                continued to look healthy.
               </p>
               <p>
                 Below, each point is one paper, positioned by the same embedding retrieval
@@ -503,7 +508,7 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
             </div>
             {/* Deliberately breaks the max-w-4xl reading column on wide screens. This is
                 the one element on the page that is a picture rather than prose, and a
-                1,754-point cloud is unreadable squeezed into a text measure. Negative
+                3,166-point cloud is unreadable squeezed into a text measure. Negative
                 margins only engage above lg, so narrow viewports are untouched. */}
             <div className="mt-7 lg:-mx-24 xl:-mx-48 2xl:-mx-72">
               <ClusterMap data={clusters} />

@@ -1515,6 +1515,49 @@ price a served GPU.
 * **Any candidate whose mechanism cannot move its gate metric.** Three instances so far
   (§4.13). Ask "through what mechanism could this change the number I am gating on" first.
 
+#### Measured: the answer is retrieved 96.2% of the time and ranked first 39% of the time
+
+The benchmark reports `recall@10` and stops, which cannot say where to spend effort. The
+full curve on `claim` dev (n=5,000, 1,000-candidate pool) settles it:
+
+| depth | recall | | rank of the correct paper | share |
+|---|---|---|---|---|
+| @1 | 0.3900 | | **1** | 39.0% |
+| @10 | 0.6906 | | 2–5 | 21.8% |
+| @20 | 0.7638 | | 6–10 | 8.3% |
+| @50 | 0.8428 | | 11–50 | 15.2% |
+| @200 | 0.9260 | | 51–200 | 8.3% |
+| @1000 | **0.9624** | | 201+ | 3.6% |
+| | | | **never retrieved** | **3.8%** |
+
+**First-stage retrieval is not the bottleneck.** The correct paper is in the pool 96.2% of
+the time; it is simply not at the top. The gap between `recall@1` and `recall@1000` is
+**0.57 of pure ranking headroom**, and *only 3.8%* of queries are beyond the reach of any
+reranker at any depth.
+
+That reorders the priorities in this section. Wider vectors, a third fusion arm, a bigger
+corpus and deeper candidate pools are all **first-stage** work competing for at most 3.8%.
+`tri_fusion`'s measured +0.0321 is real but it works by reordering, not by finding anything
+new. The remaining value is in **ranking**: the cross-encoder reaches success@1 ≈ 0.436
+against a ceiling of 0.962.
+
+Immediate consequences: raising `cross_depth` from 50 to 200 lifts the reachable ceiling
+0.8428 → 0.9260 at ~0.12 s/query, though the marginal gain should be *smaller* than the
+first +0.0458 because rank 51–200 documents are harder than rank 2–50 ones. And the 7,056
+labelled query/answer pairs are a real training set — fine-tuning a cross-encoder on them
+is the obvious untried lever.
+
+⚠️ **Two truncation artifacts had to be removed to get this curve, and both looked clean.**
+The first run reported `recall@1000 == recall@20 == 0.7638` and "23.6% never retrieved at
+any depth", which would have pointed the recommendation at first-stage retrieval — the
+opposite of the truth. Cause: `improve_loop.TOP_K = 20` truncates every ranking before
+scoring, correctly for a metric panel that tops out at k=20 and fatally for a recall curve.
+The tell was a perfectly flat curve past 20 and **exactly zero** answers at rank 51+; a
+cliff at a round number is a limit in the code, not in the data. Before that, unpacking
+`load_qrels` as `(qrels, queries, exclude)` when it returns `(queries, qrels, exclude)`
+reported 951,623 judgments — the total *character count* of 5,000 claim sentences. Three
+same-typed return values do not raise on a wrong unpack.
+
 #### The headroom question nobody has asked directly
 
 `hybrid-openai` scores **nDCG@10 = 0.5262**. The raw-TF floor — a ~20-line scorer with no

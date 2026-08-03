@@ -1367,21 +1367,112 @@ and decide separately what the *right* unjudged rule is for a sparse pool. The c
 §4.5 holds because the unjudged rate is near-identical across systems — that near-identity,
 not an absolute threshold, is the property worth gating on.
 
+### 4.19 Round 4 — the biggest result the loop has produced, and the control inverted
+
+`rerank_medcpt_cross` runs NCBI's MedCPT **cross-encoder** over the fused top 50 passages.
+On `claim`, dev, n=5,000, baseline `mrr` = 0.4880:
+
+| metric | baseline | reranked | Δ | p |
+|---|---|---|---|---|
+| **mrr** (gate) | 0.4880 | 0.5321 | **+0.0441** | 0.0000 |
+| success@1 | 0.3892 | 0.4350 | **+0.0458** | 0.0000 |
+| success@5 | 0.6060 | 0.6558 | **+0.0498** | 0.0000 |
+| success@10 | 0.6890 | 0.7210 | +0.0320 | 0.0000 |
+| success@20 | 0.7630 | 0.7726 | +0.0096 | 0.0000 |
+| unjudged@10 | | | −0.0034 | |
+
+**Every metric improves at p = 0.0000, nothing regresses, and `unjudged@10` falls** so the
+gain is not a pooling artifact. At +0.0441 this is larger than `tri_fusion` (+0.0321),
+`dense_weight_2x` (+0.0163) and `openai_768` (+0.0128) — the largest single-candidate effect
+this loop has ever measured. Registered prediction was ≥ +0.020: **CONFIRMED at double**.
+
+#### The control inverted, which is the strongest attribution this framework produces
+
+`rerank_minilm_cross` is the same operation with a general MS MARCO cross-encoder — same
+depth, same fusion, same everything but the model's training domain:
+
+| metric | Δ minilm | p |
+|---|---|---|
+| **mrr** | **−0.0248** | 0.0000 |
+| success@1 | **−0.0314** | 0.0000 |
+| success@5 | −0.0184 | 0.0002 |
+
+**A general cross-encoder actively harms this task.** The swing between candidate and
+control is **0.0689 mrr**. So the gain is *not* cross-attention as a mechanism — it is
+**domain training specifically**, and there is no ambiguity left to argue about. Every
+previous control here either reproduced an effect or failed to; this is the first that
+moved the opposite way.
+
+⚠️ **My registered prediction for the control was wrong in direction.** It was written
+expecting MiniLM to help too, but less, so the difference would isolate the domain
+increment. Instead the domain increment is not an increment: MedCPT has to overcome a
+deficit that a general reranker falls into. The result is stronger than the design
+anticipated, and recording that the prediction failed matters more than that the outcome
+was favourable.
+
+#### This resolves the round-2 MedCPT paradox
+
+§4.13 measured MedCPT as a **bi-encoder** regressing `claim` by −0.0166 (p=0.0034) and
+concluded it is "a better topical matcher and a worse pinpointer". Same model, same
+stratum, now +0.0441. **The sign flipped, and the only thing that changed is the
+architecture.**
+
+| | MedCPT bi-encoder | MedCPT cross-encoder |
+|---|---|---|
+| claim mrr | **−0.0166** | **+0.0441** |
+| what it must do with a 28-word claim | compress it into one 768-dim vector | read it jointly with the passage, no compression |
+
+So round 2's conclusion was true *of the bi-encoder*, not of the model's domain knowledge.
+The knowledge was always useful; the **bottleneck was literally the bottleneck** — the
+single vector a bi-encoder has to squeeze a 28-word sentence through. The smoothing that
+§4.13 correctly identified as costing exact attribution is a property of the *encoding
+step*, not of what MedCPT knows. Give the same weights a scoring path that never compresses
+and the cost disappears and reverses.
+
+**That is a real lesson about attribution.** Round 2 attributed a deficit to the model when
+it belonged to the architecture the model was being used in. The candidate that settled it
+was cheap and had been sitting unrun for three rounds.
+
+#### What it costs, and what remains before it ships
+
+Measured on this machine: MedCPT-Cross 1,656 pairs/s, so 5,000 queries at depth 50 is
+~2.5 minutes. Free offline. **Shipping needs a served GPU** — the same deployment problem
+§4.13 recorded for the MedCPT bi-encoder, except now it buys +0.0441 on the powered stratum
+instead of −0.0166.
+
+⚠️ Measured on **claim only**. Its own hypothesis registers `synthesis` as NULL and that has
+not been run, so the Pareto rule is satisfied on **one of four** strata. `concept` and
+`identifier` are untested, and reranking the top 50 is exactly the kind of change §4.13 warns
+can sharpen the head while losing the tail — `success@20` moved only +0.0096, the smallest
+gain in the panel, which is consistent with that risk even though it stayed positive. The
+locked `test` split is still unspent.
+
 ### 4.18 Where the score actually comes from — a critical ranking
 
 After five rounds, the honest accounting of what has moved measured quality:
 
 | lever | delivered | evidence |
 |---|---|---|
+| **cross-encoder reranking** | **claim mrr +0.0441**, every metric, p=0.0000 | §4.19 |
 | **corpus growth** | labels +79.7%, then +76% again | rounds 2, 3 |
 | **fixing the instrument** | identifier MDE 0.077 → 0.0255; the published MDE table was 5× too pessimistic | §4.14, §4.16 |
-| **retrieval algorithm changes** | **one** promotable result — `dense_weight_2x`, a single config line | rounds 1–5 |
+| **fusion / weighting changes** | `tri_fusion` +0.0321, `dense_weight_2x` +0.0163 | rounds 3, 5 |
+| **query expansion** | refuted twice, with power, on the stratum built for it | §4.16 |
 
-**That ordering should determine where effort goes, and it is the opposite of where effort
-has gone.** Rounds 1–5 proposed eleven retrieval candidates. `adaptive_weights`,
+⚠️ **This table was written one round earlier with the top row absent, and it said so
+confidently.** It concluded that "retrieval algorithm changes" had produced exactly one
+promotable result and that effort should move to data and measurement. Then the largest
+retrieval result in the project's history arrived from a candidate that had been sitting
+unrun for three rounds. The conclusion was a fair reading of the evidence available and it
+was wrong, because the strongest untested lever had not been tested — which is an argument
+for **running the cheap candidate before ranking the expensive ones**, not for trusting a
+ranking built on what happened to have been tried.
+
+What survives from the earlier reading: of eleven retrieval candidates, `adaptive_weights`,
 `lexical_heavy`, `expand_mesh`, `mmr_diversify`, `dense_only`, `route_by_shape`,
-`expand_ontology` and `expand_identity_weighted` were refuted or inert. The changes that
-actually improved the numbers were more data and better measurement.
+`expand_ontology` and `expand_identity_weighted` were refuted or inert. Most retrieval ideas
+here have failed. But "most fail" is not "none work", and the one that worked outperformed
+every data and measurement gain by a wide margin.
 
 #### 1. Ship what is already measured (largest gain, no new research)
 
@@ -1406,13 +1497,14 @@ designing for a sparse pool rather than inheriting a fixture's 0.35. And direct 
 — judging the top-k of every system's output — attacks `unjudged@10 ≈ 0.63–0.94` at its
 source rather than working around it.
 
-#### 3. Cross-encoder reranking — the largest untested retrieval lever
+#### 3. Cross-encoder reranking — **run, and it won** (§4.19)
 
 A bi-encoder must encode query and passage independently and compare vectors; a
 cross-encoder attends over both together. On `claim` — a 27.9-word sentence whose answer is
-one specific paper — that is exactly the discrimination the fused arms cannot make.
-Measured throughput on this machine: MedCPT-Cross 1,656 pairs/s, MiniLM 2,342 pairs/s, so
-5,000 queries at depth 50 costs ~2.5 min offline. Free to test, needs a served GPU to ship.
+one specific paper — that is exactly the discrimination the fused arms cannot make, and it
+is worth **+0.0441 mrr at p=0.0000** with a domain control that inverts. Next: run it on
+`concept`, `identifier` and `synthesis` so the Pareto rule has more than one stratum, and
+price a served GPU.
 
 #### 4. What not to do
 
@@ -1465,11 +1557,20 @@ Read `docs/MEASUREMENT.md`. The short version of what protects this:
   taken, which drives alpha to 0.05/38 and guarantees Type II errors. The locked test split
   is the real defence against cumulative overfitting.
 
-**Status of the loop.** Round 3 has been run (§4.14). `tri_fusion` is promoted **on dev**
-for both strata it was measured on (synthesis +0.0305, claim +0.0321, both p<0.0001), and
-`openai_768` and `route_by_shape` are promoted on claim. Nothing has shipped: concept and
-identifier were not evaluated, two controls that would attribute tri_fusion's gain have not
-run, and the locked `test` split is unspent.
+**Status of the loop.** Round 4 has been run (§4.16, §4.19).
+
+* **`rerank_medcpt_cross` is promoted on `claim`** — mrr +0.0441, every metric at p=0.0000,
+  and the domain control *inverts* (−0.0248), so the gain is attributable to biomedical
+  training rather than to cross-attention. Largest effect the loop has produced.
+* **Query expansion is retired**, refuted twice with power on the stratum built for it
+  (§4.16). Not a coverage failure: 94.4% of queries were expanded.
+* **The identifier stratum was rebuilt** after its `success@1` was found to have a ceiling
+  of 0.4985 — 335 → 1,853 queries, ceiling 1.0, MDE 0.077 → 0.0255.
+* Still promoted on dev from round 3: `tri_fusion` (synthesis +0.0305, claim +0.0321),
+  `openai_768` and `route_by_shape` on claim.
+
+**Nothing has shipped.** The reranker is measured on one stratum of four; `tri_fusion`'s two
+attribution controls have still never run; and the locked `test` split is unspent.
 
 ⚠️ **The MDE figures quoted in §4.8 and §4.10 are too pessimistic.** They use the metric's
 own standard deviation; the tests are paired, and the measured floors are roughly 5× lower

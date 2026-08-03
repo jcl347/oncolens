@@ -1046,6 +1046,363 @@ only checks syntax; it was a `NameError` at request time. Syntax-checking a chan
 runtime behaviour verifies nothing — there is now a smoke test that actually calls every
 handler.
 
+### 4.14 A regex was choosing what counts as an entity, and it cannot
+
+Query expansion reached **58.5%** of the stratum it was built for; the registry cascade
+reaches **87.2%**. The investigation into why produced a more general lesson than the fix.
+
+⚠️ **A number I got wrong, in the §6.5 way.** The first version of this section said the
+shipped expander covered **13.7%**. That is HGNC *alone*. The shipped path is regex → HGNC
+**+ MeSH**, measured end to end at **58.5%** (196/335). I had compared one arm of the old
+system against the whole of the new one — a 4× overstatement of the gain, from quoting a
+per-registry number as if it described the configuration. The real improvement is
+**+28.7 points**, and it is a real improvement, but it is not the one first written down.
+
+#### The vocabulary was picked by reputation, not by what the queries contain
+
+HGNC was chosen because it is the authoritative registry of human gene symbols. That is
+true and it was the wrong criterion. Per-registry coverage of the **335 real identifier
+queries**, all free and unauthenticated:
+
+| registry | coverage | holds |
+|---|---|---|
+| **NCI Thesaurus** | **55.8%** | NCI's own oncology ontology, 212,475 concepts |
+| ClinicalTrials.gov | 22.7% | trial acronyms, resolved to their interventions |
+| HGNC | 13.7% | human gene symbols only |
+| Cellosaurus | 8.4% | cell lines |
+| dbSNP | 0.9% | rsIDs, resolved to their gene |
+| shipped path (regex → HGNC **+ MeSH**) | **58.5%** | |
+| **cascade (whole query → 5 registries)** | **87.2%** | |
+
+What the cascade resolves them *as* is the point HGNC-alone missed — 103 protein, 70
+**clinical trial**, 39 gene, 28 variant, 22 **cell line**, 5 drug, 4 rsID, 1 questionnaire.
+
+The stratum is only *partly* genes. It is also cell lines (`MCF-7`, `UACC-812`, `OVCAR-8`),
+investigational drug codes (`CALAA-01`, `HKI-272` = neratinib), trial acronyms (`PALOMA-3`,
+the single most frequent unresolved query at ×7), HLA alleles, protein variants and an
+EORTC questionnaire (`QLQ-C30`). **No single source covers oncology terminology** — that is
+the substantive answer, and a design that assumes otherwise covers an eighth of its input.
+
+The residual 12.5% is *not* missing vocabulary: it is source-literature spelling variants
+(`CLTA-4` for `CTLA-4`) and **artifacts of the citation-context extractor** (`HER2-0`,
+`CD19-4`, `CD8-C3`, `FMC63 Y70A`) — strings that are not identifiers at all. That is a
+label-pipeline defect, not an expansion one.
+
+#### UMLS: yes, but it is an upgrade and not a prerequisite
+
+`uts-ws.nlm.nih.gov` returns **401 without an API key** (measured 2026-08-03); registration
+is free. UMLS is the real superset — ~200 vocabularies unified under one CUI. But **NCIt is
+a source vocabulary inside UMLS**, so the cascade above is the oncology slice of UMLS
+without the credential. A UTS key would mainly add non-oncology vocabularies and cross-source
+CUI merging.
+
+#### The regex conflated three jobs and could only do one
+
+`_ENTITY` decided which spans were entities. A character-class pattern can *segment*; it
+cannot *detect* or *type*, because those require knowing what a string denotes and that is
+not present in its shape. Two measurements settled it:
+
+* **89.6% of identifier queries are a single token.** There was nothing to segment — the
+  recognizer was solving a problem this stratum does not have.
+* **17 of 17 multiword identifiers were destroyed.** `EGFR T790M` → `EGFR`. Worse than
+  losing the expansion: it **broadens** a question about one resistance mutation into every
+  EGFR paper. NCIt holds `EGFR T790M` whole, as C98503.
+
+And the typing failure, demonstrated in the audit script written to find it — my own shape
+classifier filed `CTLA-4`, `SDF-1` and `MMP-9` (genes) in the same bucket as `UACC-812` (a
+cell line), `CALAA-01` (a nanoparticle drug), `BOLERO-2` (a trial) and `QLQ-C30` (a
+questionnaire). The old expander returned all seven unchanged. **A dictionary returns the
+type along with the match; that is the property being bought, not better precision.**
+
+Better options, ranked — the regex survives only as a fallback for genuinely multi-entity
+natural language:
+
+| | approach | buys |
+|---|---|---|
+| 0 | **look up the whole query** | free; fixes 17/17; deletes a component |
+| 1 | **gazetteer (Aho-Corasick/FST) on a normalised key** | recognition *and* typing in one lookup; O(query), not O(dictionary); NCIt is a 16 MB flat file. Normalising (casefold, strip hyphens/dots) reaches `VEGF-R2`→`VEGFR2`, `STAT-3`→`STAT3` |
+| 2 | **embedding entity linking (SapBERT/KRISSBERT)** | reaches transposition typos (`CLTA-4`) no trie can. Same bi-encoder machinery already here; 212k vectors is trivial beside 180,850 passages |
+| 3 | neural NER (GLiNER, BERN2) | only earns its cost where context exists — identifier queries have 1 token, claim queries 27.9. ⚠️ **scispaCy is not installable here**: `requires_python <3.13`, machine is 3.13.7 |
+| 4 | LLM extraction | fine offline to build the gazetteer; on the request path it is slow, nondeterministic, and recreates §4.4's grading-our-own-homework problem |
+
+#### Sense selection, and a guard that reported the opposite of the truth
+
+A surface form routinely matches several concepts. `COX-2` matches three in NCIt:
+prostaglandin G/H synthase 2 (right), the `PTGS2` allele (right), and the **`PTGER2`**
+allele (wrong — a different gene). **The ambiguity is real in the authoritative source**, so
+the old `COX-2` → *"prostaglandin E receptor 2"* was not a lookup bug. Three signals order
+the senses, none a curated answer key: semantic type (demote measurement/questionnaire
+senses), `termType` (`CN` marks a development *code name* — `MAGE-A3` is an antigen *and*
+the code name of a vaccine), then NCIt's own relevance order. Only the best-ranked concept
+is expanded; §4.4's rule is that a wrong expansion costs more than a missing one.
+
+**A defect in the fix, found by testing the control.** `ER` matches **14** NCIt concepts —
+Endoplasmic Reticulum, Adverse Event Emergency Room Visit, Eritrea, Estrogen Receptor
+*Positive* **and** *Negative* — and every one loses to the protein sense on semantic rank.
+The `ambiguous` field, which counts ties at the *winning* rank, therefore reported **0**
+while 13 senses were silently discarded. A number that reads as "unambiguous" in that
+situation is worse than no number; `senses` now reports the total.
+
+The two-character guard is kept, but its **old justification is obsolete**: it existed
+because MeSH resolved `ER` to *Triple Negative Breast Neoplasms*, the opposite meaning. NCIt
+resolves `ER` correctly. The real hazard was never one vocabulary's error — it is that "ER
+stress" (the organelle) and "ER+" (the receptor) are both common in an oncology corpus and
+two characters cannot separate them. **The ranking is a default, not evidence.**
+
+| case | before | after |
+|---|---|---|
+| `COX-2` | PTGER2, "prostaglandin E receptor 2" ✗ | C17984, `COX2`, `cyclooxygenase-2` ✓ |
+| `EGFR T790M` | split → `EGFR` (broadens) ✗ | C98503, `EGFR p.T790M` ✓ |
+| `MCF-7` | nothing | `MCF7`, `Michigan Cancer Foundation-7` ✓ |
+| `PALOMA-3` | nothing | NCT01942135 → `Palbociclib`, `Fulvestrant` ✓ |
+| `MET` | MeSH: *Metabolic Equivalent* ✗ | C18186 `HGFR`, `C-MET` ✓ (4 senses rejected) |
+| `ER` | nothing (right, wrong reason) | nothing (right reason) ✓ |
+
+#### What the coverage number does and does not say about the gate
+
+A candidate firing on a fraction *f* of queries needs a per-affected-query effect of
+`0.02 / f` on `success@1` to move the stratum mean by the registered 0.02:
+
+| coverage | required per-query effect |
+|---|---|
+| 13.7% (HGNC alone) | 0.146 — implausible |
+| **58.5%** (what shipped) | **0.034** — plausible |
+| **87.2%** (cascade) | **0.023** — ordinary |
+
+⚠️ I initially read this as a fourth instance of §4.8's "gate that could not be passed", on
+the strength of the 13.7% figure. **At the correct 58.5% it was not** — the original
+registration was reachable, just harder. The corrected number removes the conclusion, and
+the conclusion was the more interesting claim, which is exactly why it needed checking.
+The coverage work still stands on its own: it raises the required effect from 0.034 to
+0.023 and fixes wrong senses, which is a smaller and more honest claim.
+
+⚠️ Separately and unchanged: the identifier stratum's MDE at n=335 is ≈0.077, so detecting
+0.02 needs ≈4,900 queries. The registration is *reachable in principle* and still
+*underpowered in practice*. Those are different problems and only the first was addressed.
+
+### 4.16 The stratum was unwinnable by construction, and two candidates died proving it
+
+Round 4 ran `expand_ontology` on the identifier stratum. It failed. The follow-up that
+fixed its two diagnosed defects also failed. Then the reason both failed turned out to be
+neither of them.
+
+#### Two registered refutations, and the diagnosis in between was right
+
+| run | success@1 | Δ | p | mrr Δ | p |
+|---|---|---|---|---|---|
+| baseline | 0.1483 | | | | |
+| `expand_ontology` | 0.1144 | **−0.0339** | 0.0373 | −0.0306 | 0.0032 |
+| `expand_identity_weighted` | 0.1356 | −0.0127 | 0.2480 | −0.0121 | 0.0208 |
+
+`expand_ontology` reached **212 of 236** queries (89.8%), so §4.14's coverage work did
+exactly what it claimed — and retrieval got **worse**. Coverage was never the problem.
+
+The regression's *shape* named the mechanism: `success@1` fell 0.0339 while `success@20`
+fell only 0.0254 at p=0.27. Expansion was pulling candidates in while pushing the right one
+down — a precision loss at the top, which is what injecting undifferentiated terms into a
+lexical arm does. Two specific defects:
+
+1. **No weighting — the fourth §4.15 instance.** `Expansion.expanded_query` concatenated
+   synonyms at equal weight to the user's own words, so a one-token query like `MCF-7`
+   became 1 of 7 tokens and the user's actual term was diluted to **14%** of the query.
+   That method's own docstring said *"callers should score them below the user's own terms
+   — a synonym is evidence, not intent"*. **Nothing did.** A guard described in the design,
+   written in the notes, never invoked.
+2. **Relation conflation.** `PALOMA-3` expanded to `Palbociclib, Fulvestrant, Placebo`.
+   Those are the trial's *interventions*, not other names for it, so the query stopped
+   being about one study. And `Placebo` matches every RCT in the corpus.
+
+Fixing both (`relation="identity"` vs `"association"`, and `repeat=3`) moved success@1 from
+−0.0339 to −0.0127 and its p from 0.037 to 0.248. **The diagnosis was correct and the
+candidate still lost.**
+
+#### The real cause: the metric had a ceiling of 0.4985
+
+Identifier literals are mined from claim sentences and inherit that claim's single cited
+paper. Many sentences mention `CTLA-4` — so **`CTLA-4` was 66 separate queries, each with
+one *different* relevant document.** A retrieval system is a function of the query string.
+It returns one ranking for all 66. **At most one of them can have its judged document at
+rank 1**; the other 65 score zero however good retrieval is.
+
+| stratum | max achievable success@1 | queries sharing a string |
+|---|---|---|
+| **identifier** | **0.4985** | **63%** |
+| claim | 1.0000 | 0% |
+| concept | 1.0000 | 0% |
+| synthesis | 1.0000 | 3% |
+
+| literal | queries | best possible success@1 |
+|---|---|---|
+| `CTLA-4` | 66 | **0.015** |
+| `LAG-3` | 17 | 0.059 |
+| `TIM-3` | 12 | 0.083 |
+| `MCF-7` | 10 | 0.100 |
+
+**So "identifier success@1 = 0.148, the worst number in the system" was false.** It is
+0.148 against a ceiling of 0.4985 — **29.8% of achievable**, quoted next to three unbounded
+numbers as though comparable. That framing motivated §4.14's entire vocabulary
+investigation and two rounds of candidates. It is §6.5's error once more: a number read in
+a context it does not describe, and this time it set the agenda.
+
+Worse than mis-ranked: the stratum was **self-contradictory**. Improving retrieval for one
+`CTLA-4` query necessarily worsened the other 65, so a genuinely better system could score
+lower. No candidate could win, and two were discarded finding that out.
+
+#### The fix, and what it does not mean
+
+`merge_duplicate_queries` collapses identical strings and unions their judgments. This is
+the correct semantics, not a convenience: a user typing `CTLA-4` wants *any* paper about
+CTLA-4, and all 68 judged papers qualify. It makes identifier consistent with `concept` —
+the other short-string topical stratum — which already carries a median of 11 relevant
+documents per query.
+
+Combined with the gazetteer miner below:
+
+| | before | after |
+|---|---|---|
+| identifier queries | 335 | **1,853** |
+| distinct literals | 165 | 1,853 |
+| success@1 ceiling | 0.4985 | **1.0000** |
+| queries sharing a string | 63% | **0%** |
+
+⚠️ **Scores will jump, and the jump is not a retrieval improvement.** Any comparison across
+this change is invalid. The two expansion refutations above were measured on the broken
+benchmark, so they are **not settled** — the candidates are unchanged, the instrument was
+wrong, and §5's rule applies: fix the harness and re-run.
+
+#### The stratum was small because a regex was mining it
+
+`eval.strata._IDENTIFIER` recognises four character-class shapes. It structurally cannot
+match a bare gene symbol (`BRCA1`, `TP53`) or any drug name (`osimertinib`,
+`pembrolizumab`), because those look like ordinary words — the §4.14 limit, one layer up
+and mining the benchmark rather than serving a query.
+
+`scripts/build_gazetteer.py` builds a local NCIt dictionary — 16 MB download, **283,647
+surface forms, 3.5 MB gzipped** — and `gazetteer_identifier_queries` matches
+leftmost-longest over a normalised key:
+
+| miner | identifier queries | distinct literals |
+|---|---|---|
+| regex | 335 | 165 |
+| **gazetteer** | **6,998** | **1,876** |
+
+⚠️ **Union them, don't replace.** The regex finds **138** literals the gazetteer does not —
+trial acronyms (`BOLERO-2`, `BATTLE-2`) that are not NCIt concepts at all, plus forms whose
+sense fan-out exceeds the cap. Same conclusion as §4.14 reached about the registries: no
+single source suffices.
+
+**Two bugs in my first gazetteer miner, both worth naming.** It emitted `( fig`,
+`+ cd45ra +` and `&gt; a` as queries: `norm_key` folds punctuation away for *lookup*, so
+the raw span still matched, and the raw span was what got stored. **Normalising for
+matching but not for emission** produced queries no user would type, attached to real
+judgments. And requiring exactly one NCIt sense — reasoning from §4.14's `ER` case — threw
+away `BCL-2`, `CALAA-01` and `B16-F10`, because NCIt routinely holds a gene, its protein
+and its wild-type allele as three concepts sharing one surface form. Those are the same
+entity in three guises, not competing senses. `ER`'s problem was 14 senses spanning an
+organelle, a country and an emergency room. **The distinction is the size of the fan-out**,
+not whether it exceeds one.
+
+### 4.17 The promotion gate this file advertises does not govern the loop that promotes
+
+§5 lists the protections on promotion and says `unjudged@10 > 0.35` "blocks promotion
+outright". Those rules live in `eval/gate.py`. **`scripts/improve_loop.py` never imports
+it.**
+
+There are two promotion systems, and they run on different data:
+
+| module | gate | runs against |
+|---|---|---|
+| `loop.py` → `eval.gate.evaluate_gate` | `UNJUDGED_ABSOLUTE_MAX=0.35`, `CONSENSUS_MIN=4`, `STRATUM_TOLERANCE`, `REQUIRE_STRATUM_POWER` | the **synthetic fixture** |
+| `improve_loop.py` — what actually ran rounds 1–5 | Holm across candidates, pre-registration, Pareto dominance, `NO_EFFECT` detection, regression vetoes, unjudged **delta** ≤ 0.02 | the **real corpus** |
+
+What the real loop has is substantial and in several respects stricter. What it does *not*
+enforce is exactly the three rules §5 quotes as decisive: the absolute unjudged ceiling, the
+four-of-six consensus minimum, and the stratum-power requirement.
+
+**This is the fifth instance of §4.15's pattern** — a capability finished on one side of an
+interface and never invoked from the other — after `?q=`, `?aspect=`, `best_clause` and
+`gate_metric`. It is the most consequential one, because the uninvoked component is the
+safety gate, and because this file has been citing it as the reason to trust the results.
+
+⚠️ **Do not simply wire it in.** §4.5 measured `unjudged@10 ≈ 0.94`; §5 quotes 0.63. Either
+is far above 0.35, so enforcing the absolute ceiling on real data blocks **every** candidate
+forever — the §4.8 "gate that could not be passed" fault, promoted to the level of the whole
+promotion system. The rule was calibrated on a fixture with a densely judged pool and does
+not transfer to a citation-mined benchmark where 1.05 judgments per query is normal.
+
+The honest resolution is two things, not one: say which loop each rule governs (done above),
+and decide separately what the *right* unjudged rule is for a sparse pool. The comparison in
+§4.5 holds because the unjudged rate is near-identical across systems — that near-identity,
+not an absolute threshold, is the property worth gating on.
+
+### 4.18 Where the score actually comes from — a critical ranking
+
+After five rounds, the honest accounting of what has moved measured quality:
+
+| lever | delivered | evidence |
+|---|---|---|
+| **corpus growth** | labels +79.7%, then +76% again | rounds 2, 3 |
+| **fixing the instrument** | identifier MDE 0.077 → 0.0255; the published MDE table was 5× too pessimistic | §4.14, §4.16 |
+| **retrieval algorithm changes** | **one** promotable result — `dense_weight_2x`, a single config line | rounds 1–5 |
+
+**That ordering should determine where effort goes, and it is the opposite of where effort
+has gone.** Rounds 1–5 proposed eleven retrieval candidates. `adaptive_weights`,
+`lexical_heavy`, `expand_mesh`, `mmr_diversify`, `dense_only`, `route_by_shape`,
+`expand_ontology` and `expand_identity_weighted` were refuted or inert. The changes that
+actually improved the numbers were more data and better measurement.
+
+#### 1. Ship what is already measured (largest gain, no new research)
+
+| candidate | dev result | status |
+|---|---|---|
+| `tri_fusion` | synthesis +0.0305, claim +0.0321, both p<0.0001 | promoted, **not shipped** |
+| `dense_weight_2x` | synthesis +0.0144, claim +0.0163 — *free*, one config line | promoted, **not shipped** |
+| `openai_768` | claim mrr +0.0093, p=0.0024 | promoted, **not shipped** |
+
+Production still serves the round-0 configuration. This is blocked on process, not
+knowledge. ⚠️ But the locked `test` split is **one-shot** — spend it on the final
+configuration, not incrementally. The two controls that attribute `tri_fusion`'s gain
+(`tri_fusion_balanced`, `dual_dense`) have still never run, and until they do it is unknown
+whether that +0.03 is MedCPT or simply a 1:2 lexical:dense weight change that
+`dense_weight_2x` already delivers for free.
+
+#### 2. Keep fixing the instrument — it has outperformed every retrieval idea here
+
+Concept is still **n=533** with 8,758 judgments. The gazetteer/merge work that took
+identifier from 335 to 1,853 has not been applied to it. The unjudged rule (§4.17) needs
+designing for a sparse pool rather than inheriting a fixture's 0.35. And direct **pooling**
+— judging the top-k of every system's output — attacks `unjudged@10 ≈ 0.63–0.94` at its
+source rather than working around it.
+
+#### 3. Cross-encoder reranking — the largest untested retrieval lever
+
+A bi-encoder must encode query and passage independently and compare vectors; a
+cross-encoder attends over both together. On `claim` — a 27.9-word sentence whose answer is
+one specific paper — that is exactly the discrimination the fused arms cannot make.
+Measured throughput on this machine: MedCPT-Cross 1,656 pairs/s, MiniLM 2,342 pairs/s, so
+5,000 queries at depth 50 costs ~2.5 min offline. Free to test, needs a served GPU to ship.
+
+#### 4. What not to do
+
+* **More lexical expansion on identifier**, absent a positive result from the corrected
+  stratum. Two registered refutations (§4.16).
+* **Optimise the weighted composite.** §4.13 is the worked example of it shipping a
+  candidate that regressed `claim` by 0.017 while the composite called it +0.0126.
+* **Any candidate whose mechanism cannot move its gate metric.** Three instances so far
+  (§4.13). Ask "through what mechanism could this change the number I am gating on" first.
+
+#### The headroom question nobody has asked directly
+
+`hybrid-openai` scores **nDCG@10 = 0.5262**. The raw-TF floor — a ~20-line scorer with no
+IDF and no length normalisation — scores **0.4669**. Every model, every fusion arm and five
+rounds of candidates are worth **+0.06** over that floor.
+
+That is the number that should frame the next round. It says either the benchmark cannot
+distinguish good retrieval from crude retrieval at this judgment density, or the remaining
+headroom on this task is genuinely small. Those two possibilities have very different
+consequences and no measurement here separates them yet. Designing one is worth more than
+another candidate.
+
 ### 4.9 Environment facts learned the expensive way
 
 | Fact | Consequence |
@@ -1066,8 +1423,11 @@ Read `docs/MEASUREMENT.md`. The short version of what protects this:
 - **Per-stratum gating** — an aggregate mean rises while exact-identifier lookup collapses.
 - **`bpref` returns `None` below 10 judged negatives** — at a denominator of 2 it was noise
   being averaged into a consensus vote.
-- **`unjudged@10 > 0.35` blocks promotion outright.** Measured 0.63 — most returned
-  documents were never judged, so the score is an underestimate of unknown size.
+- **`unjudged@10 > 0.35` blocks promotion outright** — ⚠️ **in `eval/gate.py`, which
+  governs the synthetic-fixture loop only. `improve_loop` never imports it and enforces a
+  delta check instead. See §4.17 before quoting this as a protection on real results.**
+  Measured 0.63 — most returned documents were never judged, so the score is an
+  underestimate of unknown size.
 - **Holm across candidates within an iteration**, on one pre-registered gate metric — not
   Bonferroni across correlated metrics (§4.10), and not cumulatively over every draw ever
   taken, which drives alpha to 0.05/38 and guarantees Type II errors. The locked test split

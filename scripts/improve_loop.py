@@ -174,6 +174,72 @@ CANDIDATES: list[Candidate] = [
                   "most expensive candidate here, and only worth it if it beats both",
     ),
     Candidate(
+        "rerank_medcpt_cross", "NCBI MedCPT cross-encoder over the fused top 50",
+        "THE LARGEST UNTESTED LEVER, and it has never actually run. Every arm so far is a "
+        "bi-encoder: query and passage are embedded separately, so the architecture cannot "
+        "represent an interaction between them. It can tell that a passage is ABOUT "
+        "osimertinib resistance; it cannot tell whether the passage REPORTS a mechanism or "
+        "merely notes that one exists. A cross-encoder attends across both at once. "
+        "`rerank_llm` was registered for this in round 1 and was structurally unable to "
+        "pass, because it reordered the top 24 while being gated on recall@20 — a metric "
+        "reordering cannot move (§4.8). gate_metric now redirects ordering-only candidates "
+        "to a rank-sensitive metric, so the idea gets its first real test.",
+        {"cross_encoder": "medcpt-cross", "cross_depth": 50},
+        cost_note="local GPU, no API cost, ~50 pairs per query; needs a served GPU to ship",
+    ),
+    Candidate(
+        "rerank_minilm_cross", "general MS MARCO cross-encoder: the DOMAIN control",
+        "CONTROL for rerank_medcpt_cross, and the same move that caught two wrong "
+        "attributions already (openai_768 for MedCPT in §4.13, dense_weight_2x for "
+        "tri_fusion in round 5). ms-marco-MiniLM is a general web-search reranker of "
+        "similar size with no biomedical training. If both rerankers help about equally, "
+        "the gain is CROSS-ATTENTION and any reranker will do, which makes this cheap and "
+        "portable. If only the biomedical one helps, the gain is domain training and the "
+        "deployment story is quite different. Those two conclusions are not guessable from "
+        "either number on its own.",
+        {"cross_encoder": "minilm-cross", "cross_depth": 50},
+        cost_note="local GPU; ~90 MB model, the cheapest candidate in the list",
+    ),
+    Candidate(
+        "expand_ontology", "resolve the whole query against five curated registries",
+        "Aimed at the worst number in the system: identifier success@1 is 0.148, on the "
+        "stratum whose own rationale says a wrong answer costs most because the error is "
+        "invisible. The failure is structured, not mysterious: oncology is densely "
+        "synonymous (osimertinib / AZD9291 / Tagrisso; EGFR / ERBB1 / HER1) and BM25 scores "
+        "those as unrelated tokens. `expand_mesh` was tried once in round 1 against 113 "
+        "queries, which could not have detected anything.\n"
+        "Measured coverage of the 335 identifier queries decided the design: HGNC 13.7%, "
+        "NCIt 55.8%, ClinicalTrials.gov 22.7%, Cellosaurus 8.4%, union 87.5%. The stratum "
+        "is only partly genes; it is also cell lines, drug codes, trial acronyms and HLA "
+        "alleles. The regex that used to pick which spans to look up is demoted to a "
+        "fallback: 89.6% of these queries are ONE token, so there is nothing to segment, "
+        "and segmenting destroyed all 17 multiword identifiers (EGFR T790M -> EGFR, which "
+        "broadens the query rather than merely failing to help).",
+        {"expand": True, "expand_source": "ontology"},
+        cost_note="one cached registry lookup per unseen term; free at query time after that",
+    ),
+    Candidate(
+        "expand_identity_weighted",
+        "identity synonyms only, with the user's own words weighted 3x",
+        "DIAGNOSTIC FOLLOW-UP to expand_ontology, which regressed identifier success@1 by "
+        "0.0339 (p=0.037) while successfully expanding 212 of 236 queries. Coverage was "
+        "not the problem; HOW the synonyms were injected was. Two defects, both visible in "
+        "the output rather than inferred:\n"
+        "(1) NO WEIGHTING. `Expansion.expanded_query` concatenated synonyms at equal "
+        "weight, so a one-token query like MCF-7 became 1 of 7 tokens and the user's own "
+        "term was diluted to 14%. The method's own docstring said callers should score "
+        "synonyms below the user's words; nothing did. Now `repeat=3`.\n"
+        "(2) RELATION CONFLATION. PALOMA-3 expanded to 'Palbociclib, Fulvestrant, "
+        "Placebo'. Those are the trial's INTERVENTIONS, not other names for it, so the "
+        "query stopped being about one study. Resolutions now carry relation=identity vs "
+        "association, and this candidate injects only identity.\n"
+        "If this still regresses, the finding is that lexical expansion does not help this "
+        "stratum at all, which is a real answer and retires the thread.",
+        {"expand": True, "expand_source": "ontology", "expand_repeat": 3,
+         "expand_identity_only": True},
+        cost_note="identical to expand_ontology; the registries are already cached",
+    ),
+    Candidate(
         "dense_weight_2x", "two arms, dense weighted 2x: the MISSING CELL",
         "The cheapest experiment available and possibly the one that ends this thread. "
         "tri_fusion (+0.0305 synthesis) turned out to depend on BOTH a third arm AND the "
@@ -359,7 +425,7 @@ class Harness:
             self.dvecs = self._as_dense(
                 be.encode_documents_cached(self.texts, local_data_dir() / "emb_cache"))
         self.qvecs = self._as_dense(be.encode_queries([queries[q] for q in self.qids]))
-        self._expanded: dict[str, str] | None = None
+        self._expanded_by_source: dict[str, dict[str, str]] = {}
         self._dense_cache: dict[str, tuple] = {}
 
     #: Dense matrices are held as float32, not float64.
@@ -392,17 +458,31 @@ class Harness:
         n[n == 0] = 1.0
         return m / n
 
-    def expanded_queries(self) -> dict[str, str]:
-        if self._expanded is None:
-            from oncolens.terminology import expand_query
+    def expanded_queries(self, source: str = "mesh", *, repeat: int = 1,
+                         identity_only: bool = False) -> dict[str, str]:
+        # Keyed by source AND weighting: `repeat` and `identity_only` change the emitted
+        # string, so they must not share a cache slot. The first version keyed on source
+        # alone; adding a weighted variant would have silently reused the unweighted
+        # strings and reported a NO_EFFECT that was really a cache collision.
+        key = f"{source}|r{repeat}|{'id' if identity_only else 'all'}"
+        cache = self._expanded_by_source.setdefault(key, {})
+        if cache:
+            return cache
+        from oncolens.terminology import expand_query
 
-            self._expanded = {}
-            for i, qid in enumerate(self.qids):
-                e = expand_query(self.queries[qid], cache_dir=local_data_dir())
-                self._expanded[qid] = e.expanded_query()
-                if (i + 1) % 200 == 0:
-                    print(f"  expanded {i+1}/{len(self.qids)}")
-        return self._expanded
+        n_expanded = 0
+        for i, qid in enumerate(self.qids):
+            e = expand_query(self.queries[qid], cache_dir=local_data_dir(), source=source)
+            cache[qid] = e.expanded_query(repeat=repeat, identity_only=identity_only)
+            if e.terms:
+                n_expanded += 1
+            if (i + 1) % 200 == 0:
+                print(f"  expanded {i+1}/{len(self.qids)} ({n_expanded} gained synonyms)")
+        # A candidate that expanded almost nothing cannot move a metric, and saying so up
+        # front is cheaper than reading a null result and wondering which it was.
+        print(f"  {source}: {n_expanded}/{len(self.qids)} queries gained at least one "
+              f"synonym")
+        return cache
 
     def dense_vectors(self, backend_name: str):
         """Document and query matrices for a named backend, encoded once and reused."""
@@ -428,7 +508,19 @@ class Harness:
         use_rerank = cfg.get("rerank", False)
         use_adaptive = cfg.get("adaptive", False)
         use_mmr = cfg.get("mmr", False)
-        exp = self.expanded_queries() if use_expand else None
+        # Local GPU cross-encoder second stage. Loaded once per run, not per query.
+        use_cross = cfg.get("cross_encoder")
+        cross_depth = cfg.get("cross_depth", 50)
+        cross = None
+        if use_cross:
+            from oncolens.retrieval.cross_encoder import get_reranker
+
+            cross = get_reranker(use_cross)
+            print(f"  cross-encoder: {cross.name} over the top {cross_depth} passages")
+        exp = (self.expanded_queries(cfg.get("expand_source", "mesh"),
+                                     repeat=cfg.get("expand_repeat", 1),
+                                     identity_only=cfg.get("expand_identity_only", False))
+               if use_expand else None)
         qvecs, dvecs = (self.dense_vectors(cfg["dense_backend"])
                         if cfg.get("dense_backend") else (self.qvecs, self.dvecs))
 
@@ -504,6 +596,31 @@ class Harness:
                 order = llm_rerank(self.queries[qid], [self.by_id[c] for c, _ in head])
                 fused = ([(head[r.index][0], r.score) for r in order]
                          + [(c, -1.0 - i) for i, (c, _) in enumerate(fused[24:])])
+
+            if use_cross:
+                # SECOND STAGE, and it must be able to move the metric it is gated on.
+                #
+                # The scores are REPLACED, not reordered. `aggregate_chunks_to_docs` under
+                # `max` reads each document's best passage SCORE, so a pass that only
+                # permuted the list would be a no-op at document level — which is exactly
+                # how `mmr_diversify` came back byte-identical (§4.13). Replacing the head's
+                # scores changes each document's max, so the document ranking genuinely
+                # moves.
+                #
+                # Depth is 50 rather than the LLM path's 24 because a local model costs
+                # nothing per query. That is the point of running it on the GPU: depth
+                # stops being a budget decision.
+                head = fused[:cross_depth]
+                if head:
+                    sc = cross.score(self.queries[qid], [self.by_id[c] for c, _ in head])
+                    order = np.argsort(-sc)
+                    # The tail keeps its fusion order but is pinned below every reranked
+                    # passage. Cross-encoder logits are unbounded and often negative, so a
+                    # constant offset is not safe; this is.
+                    floor = float(sc.min()) - 1.0
+                    fused = ([(head[int(i)][0], float(sc[int(i)])) for i in order]
+                             + [(c, floor - 1.0 - j)
+                                for j, (c, _) in enumerate(fused[cross_depth:])])
 
             if use_mmr:
                 fused = _cap_per_document(fused, self.chunk_to_doc, cap=2)

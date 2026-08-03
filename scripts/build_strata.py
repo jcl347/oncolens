@@ -23,8 +23,8 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from oncolens.env import load_env, local_data_dir  # noqa: E402
 from oncolens.eval.strata import (  # noqa: E402
-    StratifiedQuery, assert_no_descriptor_leakage, concept_queries, identifier_queries,
-    summarize,
+    StratifiedQuery, assert_no_descriptor_leakage, concept_queries,
+    gazetteer_identifier_queries, identifier_queries, merge_duplicate_queries, summarize,
 )
 
 
@@ -94,8 +94,32 @@ def main() -> int:
     concepts = concept_queries(descs)
     print(f"concept stratum:    {len(concepts)} queries (MeSH descriptors)")
 
+    # Identifier literals come from BOTH miners, because neither is sufficient. The regex
+    # recognises four character-class shapes and cannot see a bare gene symbol (BRCA1) or
+    # any drug name (osimertinib); the NCIt gazetteer sees those but does not hold trial
+    # acronyms (BOLERO-2) and skips surface forms with too many senses. Measured on the
+    # 7,056 claim queries: regex 165 distinct literals, gazetteer 1,876, overlap 27.
     idents = identifier_queries(claims)
-    print(f"identifier stratum: {len(idents)} queries (literals mined from claims)")
+    n_regex = len(idents)
+    gaz_path = local_data_dir() / "ncit_gazetteer.json.gz"
+    if gaz_path.exists():
+        import gzip
+
+        with gzip.open(gaz_path, "rt", encoding="utf-8") as fh:
+            gaz = json.load(fh)
+        seen = {(q.query.casefold(), sorted(q.judgments)[0] if q.judgments else "")
+                for q in idents}
+        for q in gazetteer_identifier_queries(claims, gaz):
+            key = (q.query.casefold(), sorted(q.judgments)[0] if q.judgments else "")
+            if key not in seen:
+                seen.add(key)
+                idents.append(q)
+        print(f"identifier stratum: {len(idents)} queries "
+              f"({n_regex} regex + {len(idents)-n_regex} gazetteer)")
+    else:
+        print(f"identifier stratum: {len(idents)} queries (literals mined from claims)")
+        print(f"  ⚠️  no gazetteer at {gaz_path} — run scripts/build_gazetteer.py to add "
+              f"~20x more literals; the regex alone cannot see BRCA1 or osimertinib")
 
     # Synthesis: R&D questions with expert-curated answer SETS, from review sections.
     # Built separately because it needs the JATS cache, not the store.
@@ -120,6 +144,18 @@ def main() -> int:
     except AssertionError as e:
         print(f"leakage check:      FAIL — {e}")
         return 1
+
+    # Collapse identical identifier strings. `CTLA-4` was 66 separate queries each with
+    # ONE different relevant paper, so at most one of them could ever score success@1 and
+    # the stratum's ceiling was 0.4985 while every other stratum's was 1.0. See
+    # merge_duplicate_queries — this is a correctness fix, and it RAISES scores for a
+    # reason that has nothing to do with retrieval.
+    before = len(idents)
+    idents = merge_duplicate_queries(idents)
+    if before != len(idents):
+        print(f"  merged {before} -> {len(idents)} identifier queries "
+              f"(identical strings now carry unioned judgments; "
+              f"success@1 ceiling 0.4985 -> 1.0)")
 
     allq = claims + concepts + idents + synth
     s = summarize(allq)

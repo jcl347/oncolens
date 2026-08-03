@@ -60,7 +60,14 @@ PRIMARY_METRIC: dict[str, str] = {
 #:
 #: Gating a change on a metric it cannot affect is not a strict standard, it is a broken
 #: one: it produces confident negatives that carry no information.
-ORDERING_ONLY = frozenset({"rerank_llm", "topn_decay"})
+#: The cross-encoder candidates belong here for the same reason `rerank_llm` does: they
+#: rescore a fixed head of the candidate list. They CAN move a coverage metric a little,
+#: because pinning the un-reranked tail below the head changes which documents reach the
+#: top 20, but coverage is not what a reranker is for and gating on it repeats the §4.8
+#: mistake of judging a change on a metric it barely touches.
+ORDERING_ONLY = frozenset({
+    "rerank_llm", "topn_decay", "rerank_medcpt_cross", "rerank_minilm_cross",
+})
 #: For those, judge on a rank-sensitive metric even where the stratum's task metric is
 #: coverage. Coverage is still reported, and a coverage REGRESSION still vetoes.
 ORDERING_METRIC: dict[str, str] = {

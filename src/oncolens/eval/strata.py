@@ -160,6 +160,240 @@ def identifier_queries(claim_queries: list[StratifiedQuery]) -> list[StratifiedQ
     return out
 
 
+#: Longest surface form the miner will consider, in whitespace tokens. NCIt contains very
+#: long descriptive concept names ("Recurrent Adult Diffuse Large B-Cell Lymphoma") which
+#: are real concepts but are not what anyone types as a literal lookup.
+MAX_MINE_TOKENS = 3
+
+#: Shortest literal worth mining, after cleaning. Same reasoning as
+#: ``terminology.MIN_TERM_CHARS``: below this a token cannot identify anything.
+MIN_MINE_CHARS = 3
+
+#: Ordinary English that NCIt also holds as concept names. Without this the miner turns
+#: every claim sentence into a dozen spurious identifier queries carrying real judgments,
+#: which would inflate the stratum with noise and look like progress on the power problem.
+#: This is a stop list against dictionary FALSE POSITIVES, not a hand-built vocabulary of
+#: what to search for — the distinction §4.4 draws about biasing a benchmark.
+_MINE_STOPWORDS = frozenset({
+    "and", "or", "not", "the", "for", "with", "was", "were", "are", "can", "may", "all",
+    "this", "that", "these", "those", "from", "into", "than", "then", "when", "where",
+    "cell", "cells", "gene", "genes", "protein", "proteins", "study", "studies", "group",
+    "groups", "patient", "patients", "result", "results", "method", "methods", "data",
+    "level", "levels", "effect", "effects", "type", "types", "case", "cases", "control",
+    "controls", "human", "mouse", "mice", "rat", "tumor", "tumour", "cancer", "disease",
+    "one", "two", "three", "high", "low", "new", "old", "same", "other", "such", "both",
+    "each", "more", "most", "less", "only", "also", "well", "very", "much", "many",
+    "some", "any", "fig", "figure", "table", "ref", "via", "per", "using", "used", "show",
+    "shown", "shows", "increase", "decrease", "expression", "activity", "response",
+    "treatment", "therapy", "model", "models", "assay", "line", "lines", "mrna", "dna",
+    "rna", "vivo", "vitro", "sensitivity", "specificity", "survival", "growth", "risk",
+})
+
+
+def gazetteer_identifier_queries(
+    claim_queries: list["StratifiedQuery"],
+    gazetteer: dict[str, dict],
+    *,
+    max_per_target: int = 4,
+) -> list["StratifiedQuery"]:
+    """Mine identifier queries with a **dictionary** instead of a pattern.
+
+    ``_IDENTIFIER`` recognises four character-class shapes. It structurally cannot match a
+    bare gene symbol (``BRCA1``, ``TP53``) or any drug name (``osimertinib``,
+    ``pembrolizumab``), because those look like ordinary words — and looking like an
+    ordinary word is not something a regex can distinguish from being one. That limit, not
+    the corpus, is why the identifier stratum was 335 queries while the eval needed
+    thousands to resolve a 0.02 effect (§4.14, §4.8).
+
+    A gazetteer built from NCIt knows ``osimertinib`` is a Pharmacologic Substance and
+    ``patients`` is not, so recognition and typing are one lookup. Matching is
+    **leftmost-longest** over a normalised key, so ``EGFR T790M`` is taken whole rather than
+    split into ``EGFR`` — the failure that used to *broaden* a resistance-mutation query
+    into every EGFR paper.
+
+    Judgments are inherited from the claim the literal was mined out of, exactly as
+    ``identifier_queries`` does: the citing author asserted the cited paper supports this
+    sentence, and the literal is the sentence's subject. Nothing new is judged here.
+
+    ``max_per_target`` mirrors §4.4's ``MAX_PER_TARGET`` — without it a landmark paper
+    cited 90 times contributes 90 near-identical queries and the stratum measures that one
+    paper.
+
+    ⚠️ **Use with** ``identifier_queries``, **not instead of it.** Measured: the gazetteer
+    finds 1,849 literals the regex cannot, and the regex finds **138** the gazetteer does
+    not — trial acronyms (``BOLERO-2``, ``BATTLE-2``) that are not NCIt concepts at all,
+    and hyphenated forms whose sense fan-out exceeds ``MAX_MINE_SENSES``. Neither is
+    sufficient alone, which is the same conclusion §4.14 reached about the registries
+    themselves. ``build_strata`` unions them.
+    """
+    out: list[StratifiedQuery] = []
+    seen: set[str] = set()
+    per_target: dict[str, int] = {}
+
+    for q in claim_queries:
+        target = sorted(q.judgments)[0] if q.judgments else ""
+        if per_target.get(target, 0) >= max_per_target:
+            continue
+        for token, entry in _mine_spans(q.query, gazetteer):
+            key = f"{token.casefold()}|{target}"
+            if key in seen:
+                continue
+            seen.add(key)
+            per_target[target] = per_target.get(target, 0) + 1
+            out.append(StratifiedQuery(
+                query_id=f"ident:{token.replace(' ', '_')}:{q.query_id.split(':')[-1]}",
+                query=token,
+                stratum="identifier",
+                judgments=dict(q.judgments),
+                exclude_doc=q.exclude_doc,
+                note=f"{entry['sem'][0] if entry.get('sem') else 'concept'} "
+                     f"{entry.get('code', '')}; from: {q.query[:60]}",
+            ))
+            if per_target[target] >= max_per_target:
+                break
+    return out
+
+
+#: A span may match this many NCIt concepts and still be mined.
+#:
+#: The first version required exactly one, reasoning from §4.14's ``ER`` case. That was
+#: wrong, and it cost 154 real identifiers — ``BCL-2``, ``CALAA-01``, ``B16-F10``. NCIt
+#: routinely holds a gene, its protein and its wild-type allele as three concepts sharing
+#: one surface form; those are the *same* entity in three guises, not competing senses, and
+#: expanding any of them retrieves the same papers. ``ER``'s problem was 14 senses spanning
+#: an organelle, a country and an emergency room. The distinction is the size of the fan-out.
+MAX_MINE_SENSES = 4
+
+#: Semantic types where an all-lowercase single token is a genuine literal. INN drug names
+#: are lowercase by convention (``osimertinib``, ``pembrolizumab``), while gene symbols and
+#: cell lines carry capitals. Outside these types a bare lowercase word is far more likely
+#: to be an ordinary English word that NCIt happens to contain as a concept name.
+_LOWERCASE_OK = {
+    "Pharmacologic Substance", "Organic Chemical", "Antibiotic",
+    "Biologically Active Substance", "Nucleic Acid, Nucleoside, or Nucleotide",
+}
+
+_HTML_ENTITY = re.compile(r"&[a-z]+;|&#\d+;")
+#: What survives as a query literal: letters, digits, hyphens, dots and internal spaces.
+#: Anything else is sentence punctuation that leaked into the span.
+_MINE_CLEAN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-./ ]*[A-Za-z0-9]$|^[A-Za-z0-9]{3,}$")
+
+
+def _clean_span(span: str) -> str:
+    """Strip the sentence away from the literal.
+
+    Without this the miner emitted ``( fig``, ``+ cd45ra +`` and ``&gt; a`` as queries:
+    ``norm_key`` folds punctuation away for *lookup*, so the raw span still matched, and
+    the raw span was what got stored. Normalising for matching but not for emission is the
+    bug, and it produced queries no user would type against judgments that were real.
+    """
+    s = _HTML_ENTITY.sub(" ", span)
+    s = s.strip(" \t\"'`()[]{}<>.,;:!?*+/\\|—–-")
+    return " ".join(s.split())
+
+
+def _mine_spans(text: str, gazetteer: dict[str, dict]):
+    """Leftmost-longest gazetteer matches over ``text``.
+
+    Longest-first is what keeps ``EGFR T790M`` intact: a greedy left-to-right scan that
+    tried one token first would consume ``EGFR`` and never see the variant.
+    """
+    from oncolens.terminology import norm_key
+
+    words = text.split()
+    i = 0
+    while i < len(words):
+        hit = None
+        for n in range(min(MAX_MINE_TOKENS, len(words) - i), 0, -1):
+            span = _clean_span(" ".join(words[i:i + n]))
+            if len(span) < MIN_MINE_CHARS or not _MINE_CLEAN.match(span):
+                continue
+            if span.casefold() in _MINE_STOPWORDS:
+                continue
+            # A multi-token span whose parts are function words is a sentence fragment
+            # that happened to normalise onto a concept: "a to" folds to "ato" and hits
+            # Arsenic Trioxide. Normalisation is what makes the dictionary robust to
+            # spelling; it is also what lets nonsense in, so the raw tokens are checked.
+            toks = span.split()
+            if len(toks) > 1 and any(len(t) < 2 or t.casefold() in _MINE_STOPWORDS
+                                     for t in toks):
+                continue
+            entry = gazetteer.get(norm_key(span))
+            if not entry or entry.get("senses", 1) > MAX_MINE_SENSES:
+                continue
+            sem = set(entry.get("sem") or ())
+            # An all-lowercase single word is only a literal if the dictionary says it is
+            # a drug. This uses the CONCEPT'S TYPE as the arbiter, with case as a prior —
+            # not a pattern deciding on shape alone.
+            if span.islower() and " " not in span and not (sem & _LOWERCASE_OK):
+                continue
+            hit = (span, entry, n)
+            break
+        if hit:
+            yield hit[0], hit[1]
+            i += hit[2]
+        else:
+            i += 1
+
+
+def merge_duplicate_queries(queries: list["StratifiedQuery"]) -> list["StratifiedQuery"]:
+    """Collapse identical query strings, unioning their judgments.
+
+    **The defect this fixes makes a metric unwinnable.** Identifier literals are mined out
+    of claim sentences and inherit that claim's single cited paper. Many sentences mention
+    ``CTLA-4``, so ``CTLA-4`` appeared as **66 separate queries**, each with one *different*
+    relevant document. A retrieval system is a function of the query string — it returns
+    one ranking for all 66 — so at most one of them can have its judged document at rank 1.
+    The other 65 score zero however good retrieval is.
+
+    Measured ceilings before this ran:
+
+    ========== ================== ==================
+    stratum    max success@1      queries sharing a string
+    ========== ================== ==================
+    identifier **0.4985**         63%
+    claim      1.0000             0%
+    concept    1.0000             0%
+    synthesis  1.0000             3%
+    ========== ================== ==================
+
+    So identifier's 0.1483 was **29.8% of what was achievable**, not 14.8%, and it was
+    being quoted next to three unbounded numbers as "the worst in the system". That framing
+    is what motivated two rounds of query expansion. It is the §6.5 error again: a number
+    read in a context it does not describe.
+
+    Merging is not a convenience, it is the correct semantics. A user typing ``CTLA-4``
+    wants *any* paper substantively about CTLA-4, and all 68 judged papers qualify. This
+    makes identifier consistent with ``concept``, the other short-string topical stratum,
+    which already carries a median of 11 relevant documents per query.
+
+    ⚠️ **Scores will rise when this lands, and the rise is not a retrieval improvement.**
+    It is a measurement correction. Any comparison across this change is invalid; the
+    baseline must be re-measured, which ``improve_loop`` does on every run anyway.
+    """
+    by_text: dict[str, StratifiedQuery] = {}
+    for q in queries:
+        key = f"{q.stratum}|{q.query.strip().casefold()}"
+        first = by_text.get(key)
+        if first is None:
+            by_text[key] = StratifiedQuery(
+                query_id=q.query_id, query=q.query, stratum=q.stratum,
+                judgments=dict(q.judgments), exclude_doc=q.exclude_doc, note=q.note)
+            continue
+        for doc, grade in q.judgments.items():
+            # Keep the strongest grade any source assigned.
+            if grade > first.judgments.get(doc, 0):
+                first.judgments[doc] = grade
+        # `exclude_doc` guards §4.4's leakage rule: the citing paper must never be
+        # returnable. Merging must not drop one, so a merged query keeps the first and
+        # the rest are recorded for the caller to exclude too.
+        if q.exclude_doc and q.exclude_doc != first.exclude_doc:
+            extra = first.note.split("|excl:")[-1] if "|excl:" in first.note else ""
+            if q.exclude_doc not in extra:
+                first.note += f"|excl:{q.exclude_doc}"
+    return list(by_text.values())
+
+
 def assert_no_descriptor_leakage(sample_texts: list[str], descriptors: list[str]) -> None:
     """Fail if indexed text looks like it carries the MeSH labels themselves.
 

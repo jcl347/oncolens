@@ -274,6 +274,90 @@ HYPOTHESES: dict[str, Hypothesis] = {
                   "effects are properties of the QUERIES or of the strata as pools.",
         null_strata=("claim",),
     ),
+    "rerank_medcpt_cross": Hypothesis(
+        candidate="rerank_medcpt_cross", stratum="claim", metric="mrr",
+        direction="up", min_effect=0.02,
+        mechanism="A bi-encoder embeds query and passage separately, so it cannot "
+                  "represent an interaction between them: it can tell a passage is ABOUT "
+                  "a topic, not whether it REPORTS the specific thing asked. A "
+                  "cross-encoder attends across both. Predicted on claim because a claim "
+                  "query is a 28-word sentence with exactly one correct source, which is "
+                  "the case where reading the pair together should matter most and where "
+                  "n=5,000 can actually resolve it. Larger min_effect than usual because "
+                  "reranking is the single most-reported win in the RAG literature; if it "
+                  "moves less than 0.02 here, this pipeline is not where the headroom is.",
+        # Coverage should barely move: the tail is pinned below the reranked head, so
+        # which documents reach the top 20 changes only at the margin.
+        null_strata=("synthesis",),
+    ),
+    "rerank_minilm_cross": Hypothesis(
+        candidate="rerank_minilm_cross", stratum="claim", metric="mrr",
+        direction="up", min_effect=0.02,
+        mechanism="DOMAIN control for rerank_medcpt_cross. A general MS MARCO reranker "
+                  "with no biomedical training. If it matches the biomedical one, the "
+                  "gain is cross-attention and any reranker will do, which is the cheap "
+                  "and portable outcome. If it does not, the gain is domain training. "
+                  "Registered with the SAME threshold as the treatment on purpose: a "
+                  "control held to a lower bar is not a control.",
+        null_strata=(),
+    ),
+    "expand_ontology": Hypothesis(
+        candidate="expand_ontology", stratum="identifier", metric="success@1",
+        direction="up", min_effect=0.02,
+        mechanism="Identifier queries are bare symbols and success@1 is 0.148, the worst "
+                  "number in the system, on the stratum where a wrong answer costs most. "
+                  "BM25 scores EGFR, ERBB1 and HER1 as unrelated tokens; a curated "
+                  "registry states that they are one gene. Expansion should help "
+                  "precisely where the query IS such a symbol.\n\n"
+                  "REVISED 2026-08-03, BEFORE ANY MEASUREMENT OF THIS CANDIDATE. The "
+                  "original registration named HGNC + MeSH, measured end to end at 58.5% "
+                  "of the 335 identifier queries. The stratum is not mostly genes - it is "
+                  "cell lines (MCF-7, UACC-812), investigational drug codes (CALAA-01, "
+                  "HKI-272), trial acronyms (PALOMA-3, x7), HLA alleles, protein variants "
+                  "and an EORTC questionnaire. The candidate now runs a five-registry "
+                  "cascade (NCIt, Cellosaurus, ClinicalTrials.gov, HGNC, MeSH) reaching "
+                  "87.2%, and resolves each term to a TYPE rather than a bare string.\n\n"
+                  "WHAT THAT DOES TO THE GATE. A candidate firing on fraction f of "
+                  "queries needs a per-affected-query effect of 0.02/f on success@1 to "
+                  "move the stratum mean by 0.02: 0.034 at 58.5%, 0.023 at 87.2%. Both "
+                  "are attainable, so - unlike 4.8 and 4.13 - this gate was NOT "
+                  "unreachable, and an earlier draft of this note claiming it was had "
+                  "quoted HGNC's 13.7% as if it described the shipped configuration.\n\n"
+                  "The risk being tested is the mirror of the reward: expansion injects "
+                  "terms the user did not type. 4.4's ER case is now understood better - "
+                  "NCIt resolves ER correctly, but to FOURTEEN concepts including the "
+                  "endoplasmic reticulum and Eritrea, so the hazard is silent sense "
+                  "selection rather than one vocabulary's error. A regression here would "
+                  "say the guards are not tight enough, not that synonymy does not matter.",
+        null_strata=("claim",),
+    ),
+    "expand_identity_weighted": Hypothesis(
+        candidate="expand_identity_weighted", stratum="identifier", metric="success@1",
+        direction="up", min_effect=0.02,
+        mechanism="REGISTERED BEFORE THE RUN, AFTER expand_ontology WAS REFUTED. That "
+                  "candidate reached 89.8% of queries (212/236) and still regressed "
+                  "success@1 by 0.0339 at p=0.037, so the failure was not coverage. The "
+                  "shape of the regression says where it was: success@1 fell 0.0339 and "
+                  "success@20 only 0.0254 (p=0.27, not significant). Expansion was pulling "
+                  "candidates IN while pushing the right one DOWN - a precision loss at "
+                  "the top, which is what injecting undifferentiated extra terms into a "
+                  "lexical arm does.\n\n"
+                  "Two specific defects are fixed here: synonyms were injected at EQUAL "
+                  "weight to the user's own words (MCF-7 became 1 of 7 tokens), and "
+                  "association links were treated as synonyms (PALOMA-3 -> Palbociclib, "
+                  "Fulvestrant, Placebo, which stops the query being about one trial).\n\n"
+                  "PREDICTION: identity-only synonyms with the query repeated 3x recovers "
+                  "the baseline and improves on it, because the remaining expansions are "
+                  "genuine spelling variants of exactly what was asked for (MCF-7 -> MCF7, "
+                  "EGFR T790M -> EGFR p.T790M) and those cannot broaden a query.\n\n"
+                  "WHAT A NULL RESULT WOULD MEAN, stated now so it cannot be "
+                  "reinterpreted later: if this also fails to beat baseline, the honest "
+                  "conclusion is that lexical synonym injection does not help the "
+                  "identifier stratum, and the thread is retired rather than tuned "
+                  "further. Two registered failures on the same mechanism is evidence "
+                  "about the mechanism, not an invitation to a third parameter sweep.",
+        null_strata=("claim",),
+    ),
     "rerank_llm": Hypothesis(
         candidate="rerank_llm", stratum="concept", metric="success@5",
         direction="up", min_effect=0.02,

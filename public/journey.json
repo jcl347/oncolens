@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-02T22:53:23+00:00",
-  "git_rev": "2ac162a",
+  "generated_at": "2026-08-03T16:02:03+00:00",
+  "git_rev": "8544ff5",
   "live_store_reachable": true,
   "store_error": null,
   "stages": [
@@ -435,13 +435,13 @@
     },
     {
       "stratum": "identifier",
-      "queries": 335,
-      "judgments": 351,
+      "queries": 1853,
+      "judgments": 6171,
       "weight": 0.2,
       "gate_metric": "success@1",
-      "mde": 0.027,
-      "mde_analytic": 0.06,
-      "mde_source": "measured from paired bootstrap CI",
+      "mde": 0.0255,
+      "mde_analytic": 0.0255,
+      "mde_source": "analytic, conservative: no run on this stratum yet",
       "sees_002": false
     },
     {

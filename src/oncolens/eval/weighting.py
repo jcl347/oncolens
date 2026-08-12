@@ -70,18 +70,45 @@ ORDERING_ONLY = frozenset({
 })
 #: For those, judge on a rank-sensitive metric even where the stratum's task metric is
 #: coverage. Coverage is still reported, and a coverage REGRESSION still vetoes.
+#: ⚠️ **Scoped to COVERAGE metrics only, after this redirect cost a promotion.**
+#:
+#: The rule above exists because §4.8 gated a reranker on ``recall@20`` — a coverage metric
+#: that reordering a fixed head cannot move. It was then applied to every stratum, including
+#: ones whose task metric is **already rank-sensitive**, and that is a different situation:
+#:
+#: * ``synthesis`` primary is ``recall@20`` — coverage. The redirect is correct.
+#: * ``concept`` primary is ``success@5`` — a rank threshold. A depth-50 reranker plainly
+#:   changes which document lands at rank ≤5, so there was never a structural problem to
+#:   fix. Redirecting it to ``success@1`` swapped a movable metric for the **noisiest**
+#:   member of the panel: measured paired sd_diff 0.375 for ``success@5`` against 0.482 for
+#:   ``success@1`` on the same stratum.
+#: * ``identifier`` and ``claim`` entries were no-ops (already the primary).
+#:
+#: What it cost: ledger iteration 15 discarded ``rerank_medcpt_cross`` on concept at
+#: ``success@1`` +0.0606 p=0.0315 against a Holm threshold of 0.025, while the stratum's own
+#: primary ``success@5`` moved +0.0496 at p=0.0160 with no regressions. It also broke
+#: within-stratum comparability: ``tri_fusion`` was judged on ``success@5`` and a
+#: near-identical effect from a reranker was judged on a stricter bar.
+#:
+#: ⚠️ **This scoping was noticed AFTER seeing that result.** It is justified on its own
+#: terms — the redirect's own docstring says "even where the stratum's task metric is
+#: coverage" — but choosing a gate after seeing an outcome is what pre-registration exists
+#: to prevent. So it is applied PROSPECTIVELY: iteration 15's DISCARD stands as recorded,
+#: and any concept claim requires a fresh pre-registered run.
 ORDERING_METRIC: dict[str, str] = {
-    "synthesis": "ndcg@10",
-    "concept": "success@1",
-    "identifier": "success@1",
-    "claim": "mrr",
+    "synthesis": "ndcg@10",     # primary is recall@20 — genuinely a coverage metric
 }
 
 
 def gate_metric(stratum: str, candidate: str) -> str:
-    """The metric this candidate should be judged on for this stratum."""
-    if candidate in ORDERING_ONLY:
-        return ORDERING_METRIC.get(stratum, "mrr")
+    """The metric this candidate should be judged on for this stratum.
+
+    Reordering-only candidates are redirected **only** where the stratum's own primary is a
+    coverage metric they cannot move. Everywhere else the primary stands, so a candidate is
+    judged on the same bar as every other candidate on that stratum.
+    """
+    if candidate in ORDERING_ONLY and stratum in ORDERING_METRIC:
+        return ORDERING_METRIC[stratum]
     return PRIMARY_METRIC.get(stratum, "mrr")
 
 

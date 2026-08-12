@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-12T04:11:31+00:00",
-  "git_rev": "1dc806a",
+  "generated_at": "2026-08-12T04:33:13+00:00",
+  "git_rev": "1aa315a",
   "live_store_reachable": true,
   "store_error": null,
   "stages": [
@@ -414,45 +414,49 @@
     {
       "stratum": "synthesis",
       "queries": 2179,
+      "dev_queries": 1525,
       "judgments": 10368,
       "weight": 0.35,
       "gate_metric": "recall@20",
-      "mde": 0.0051,
-      "mde_analytic": 0.027,
-      "mde_source": "measured from paired bootstrap CI",
+      "mde": 0.01,
+      "mde_analytic": 0.0323,
+      "mde_source": "measured from the paired bootstrap CI of recall@20 on dev",
       "sees_002": true
     },
     {
       "stratum": "concept",
       "queries": 533,
+      "dev_queries": 373,
       "judgments": 8758,
       "weight": 0.3,
       "gate_metric": "success@5",
-      "mde": 0.0154,
-      "mde_analytic": 0.0553,
-      "mde_source": "measured from paired bootstrap CI",
-      "sees_002": true
+      "mde": 0.0544,
+      "mde_analytic": 0.0661,
+      "mde_source": "measured from the paired bootstrap CI of success@5 on dev",
+      "sees_002": false
     },
     {
       "stratum": "identifier",
       "queries": 1853,
+      "dev_queries": 1297,
       "judgments": 6171,
       "weight": 0.2,
       "gate_metric": "success@1",
-      "mde": 0.0144,
-      "mde_analytic": 0.0255,
-      "mde_source": "measured from paired bootstrap CI",
-      "sees_002": true
+      "mde": 0.0218,
+      "mde_analytic": 0.0335,
+      "mde_source": "measured from the paired bootstrap CI of success@1 on dev",
+      "sees_002": false
     },
     {
       "stratum": "claim",
       "queries": 7056,
+      "dev_queries": 4939,
       "judgments": 7408,
       "weight": 0.15,
       "gate_metric": "mrr",
-      "mde": 0.0055,
-      "mde_analytic": 0.0167,
-      "mde_source": "measured from paired bootstrap CI",
+      "mde": 0.0087,
+      "mde_analytic": 0.0199,
+      "mde_source": "measured from the paired bootstrap CI of mrr on dev",
       "sees_002": true
     }
   ]

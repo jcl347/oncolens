@@ -18,8 +18,55 @@ Measured on 3,251 cached JATS documents:
 | figures with a caption | 99.0% | captions are near-universal |
 | figures with an image reference | **99.9%** | the picture is fetchable for essentially all |
 | tables that are machine-readable `<table>`, not pictures | **95.3%** | table extraction is already done |
-| caption text **absent from the index** | **17.4M chars** | ≈10.7% more text than the body index holds |
 | median caption length | **934 chars** | these are descriptive paragraphs, not one-liners |
+| **caption text already in the index** | **median 100% token coverage; 98.7% of captions ≥90% covered** | ⚠️ see below — this reverses the plan's original premise |
+
+### ⚠️ Correction: the captions are already indexed
+
+An earlier version of this plan claimed **17.4M characters of caption text were absent from
+the index** and built "Stage 0 — index the captions, no models, the largest certain gain"
+on top of it. **That was wrong.** It was reasoned — *figures are images, so nothing survives
+the plain-text rendition* — and never checked.
+
+NCBI's plain-text rendition **inlines figure captions into the body flow**. Measured against
+the live index on 250 sampled documents / 1,113 captions:
+
+| | measured |
+|---|---|
+| median caption token coverage in indexed text | **100.0%** |
+| captions ≥90% covered | **98.7%** |
+| captions <50% covered | **0.1%** |
+
+Verbatim from `chunks`, showing the caption jammed onto the preceding sentence:
+
+> `...(I2 = 81).Figure 1. Meta-analysis. (A) Rates of all-grade infections and (B) grade ≥3
+> infections among patients with multiple myeloma treated with bispecific antibodies...`
+
+The 17.4M figure was double-counting text already inside the ~163M body total. **Stage 0 as
+written would have been a candidate incapable of moving its gate** — the fifth instance of
+§4.13's fault in this project, and the first caused by asserting a fact rather than
+mis-wiring one.
+
+**What this does to the value case.** Caption text is already in both the BM25 and dense
+arms, and §1's measurement says **81.1% of the numbers authors cite against a figure are
+already in the caption**. So text retrieval already holds most of the figure *signal*. The
+figure programme is therefore **not primarily a retrieval-quality project**. What is
+genuinely missing is:
+
+1. **the image as a returnable object** — nothing links a chunk to `image_uri`, so a chart
+   cannot be shown even when its caption is what matched. This is product value, and it
+   will not show up in nDCG;
+2. **addressability** — no `figure_id`, no `kind='figure'`, so "show me the survival curves"
+   is unanswerable as a query shape;
+3. **the pixel-only residue** — the ~18.9% of cited numbers absent from captions, plus
+   everything in a plot that no sentence ever mentions;
+4. **a real if minor text defect** — `.Figure 1.Meta-analysis.` concatenation corrupts the
+   sentence boundary of both the body sentence and the caption, and a ~900-char chunk
+   boundary can split a 934-char caption in half.
+
+Evaluate this work as **returning figures as first-class objects**, not as improving
+ranking. Registering it as a ranking win would set up a null result that looks like failure
+when it is the predicted outcome.
 
 And three numbers that reorder the design space:
 
@@ -314,10 +361,17 @@ drifting from what the client believes.
 | stage | what | gate to proceed |
 |---|---|---|
 | **A** | Figure labels from `<xref>`; exclude source passage; caption-answerable / pixel-only split; report n, judgments/query, measured MDE, achievable ceiling | labels exist and the ceiling is 1.0 |
-| **0** | Index caption text + `<table>` markup. **No models.** | `synthesis recall@20` up ≥0.01; `claim` and `identifier` NULL |
-| **1** | VLM description at index time over all 16,792 figures; chart-to-table for the 27.5% that are plottable | beats Stage 0 **with the caption-only control also run** |
+| **0′** | **Structure text that is already there** — split captions out of body chunks into `kind='figure'` rows, attach `figure_id` and `image_uri`, fix the `.Figure 1.` boundary defect. **No new text, no models.** | figures are *returnable* and `kind=figure` answers; ranking predicted **NULL** |
+| **1** | VLM description into `indexed_text` for all 16,792 figures; chart-to-table for the 27.5% plottable | beats 0′ **with the caption-only control also run** |
 | **2** | Panel segmentation (~50% of medical figures are multi-panel; PMC ships one image per `<fig>`) | pixel-only queries exist and Stage 1 fails on them specifically |
 | **3** | ColPali/ColQwen as an attribution control | — never ships as primary; §1 |
+
+⚠️ **Stage 0′ replaces the deleted Stage 0 and its prediction is inverted.** The old stage
+predicted a ranking gain from adding caption text; the text was already there. 0′ adds no
+text at all — it re-files existing text as addressable figure rows and attaches the image.
+Its gate is a **product capability** (can a chart be returned and shown?), and its ranking
+prediction is **NULL on every stratum**. A measurable ranking change from 0′ would be a
+warning that chunk boundaries moved, not a win.
 
 Stages 1 and 2 are deliberately inverted against intuition. Panel segmentation is the more
 interesting engineering and the less certain payoff; whole-figure descriptions are testable

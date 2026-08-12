@@ -55,6 +55,8 @@ class LiveIndex:
     _conn: object | None = field(default=None, repr=False)
     _backend: object | None = field(default=None, repr=False)
     _checked: bool = field(default=False, repr=False)
+    #: Promoted configuration, resolved once per warm container. See `served()`.
+    _served: dict | None = field(default=None, repr=False)
 
     def conn(self):
         import psycopg
@@ -79,8 +81,37 @@ class LiveIndex:
     def encode_query(self, query: str) -> list[float]:
         return [float(x) for x in self.encoder().encode_queries([query])[0]]
 
-    def search(self, query: str, *, top_k: int = 10, candidates: int = 200,
-               bm25_weight: float = 1.0, dense_weight: float = 1.0) -> dict:
+    def served(self) -> dict:
+        """The promoted configuration this container serves, loaded once and cached.
+
+        Until this existed, `config/served.json` was written by every promotion and read by
+        nothing, so five rounds of measurement could not reach a user. A broken file raises
+        rather than falling back: a promotion that silently fails to apply is worse than one
+        that refuses, because the next measurement would be against a config that never
+        took effect.
+        """
+        if getattr(self, "_served", None) is None:
+            from . import served_config
+
+            idx = None
+            try:
+                with self.conn().cursor() as cur:
+                    cur.execute("SELECT k, v FROM index_config")
+                    idx = {k: v for k, v in cur.fetchall()}
+            except Exception:  # noqa: BLE001 — absence must not block serving
+                idx = None
+            object.__setattr__(self, "_served", served_config.load(index_config=idx))
+        return self._served
+
+    def search(self, query: str, *, top_k: int = 10, candidates: int | None = None,
+               bm25_weight: float | None = None, dense_weight: float | None = None) -> dict:
+        # Defaults come from the SERVED CONFIG, not from literals here. An explicit
+        # argument still wins, so the harness and tests can pin a configuration.
+        cfg = self.served()
+        candidates = cfg["candidates"] if candidates is None else candidates
+        bm25_weight = cfg["bm25_weight"] if bm25_weight is None else bm25_weight
+        dense_weight = cfg["dense_weight"] if dense_weight is None else dense_weight
+
         conn = self.conn()
         vec = self.encode_query(query) if dense_weight > 0 else [0.0] * self.dim
         rows = neon_store.hybrid_search(
@@ -94,11 +125,16 @@ class LiveIndex:
         # results and the reader concludes the corpus holds work on a term it has never
         # seen. Absence of evidence has to be reported as absence, not as ten hits.
         any_lexical = any(r.get("matched_by") != "semantic" for r in results)
+        from . import served_config
+
         out = {
             "query": query,
             "backend": self.backend_name,
             "source": "neon",
             "lexical_match": any_lexical,
+            # The active configuration, returned so it is OBSERVABLE. This module exists
+            # because a config file sat unread for five rounds and nobody could tell.
+            "config": served_config.describe(cfg),
             "results": results,
         }
         if results and not any_lexical:

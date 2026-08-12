@@ -517,6 +517,38 @@ class Harness:
         self._dense_cache[backend_name] = (qv, dv)
         return qv, dv
 
+    def fused_chunks(self, cfg: dict) -> dict[str, list[str]]:
+        """Per-query fused chunk ids, exactly as `run` computes them before aggregation.
+
+        Exists for hard-negative mining. Negatives must be the passages **the live system
+        already ranks highly and gets wrong**; anything else teaches a reranker to separate
+        oncology from cooking, which BM25 does already.
+
+        Kept deliberately thin and reusing `self.bm25` / `self.qvecs` so it cannot drift
+        from `run`'s two arms. It intentionally does NOT apply the rerank or cross-encoder
+        stages: negatives are mined against the baseline, because that is the ranking the
+        fine-tuned model will be asked to improve on.
+        """
+        bm25_w = cfg.get("bm25_weight", 1.0)
+        dense_w = cfg.get("dense_weight", 1.0)
+        cand = cfg.get("candidates", 200)
+        out: dict[str, list[str]] = {}
+        for qi, qid in enumerate(self.qids):
+            runs, weights = [], []
+            if bm25_w > 0:
+                runs.append(self.bm25.search(self.queries[qid], k=cand))
+                weights.append(bm25_w)
+            if dense_w > 0:
+                sims = self.dvecs @ self.qvecs[qi]
+                top = np.argpartition(-sims, min(cand, len(sims) - 1))[:cand]
+                top = top[np.argsort(-sims[top])]
+                runs.append([(self.chunk_ids[i], float(sims[i])) for i in top])
+                weights.append(dense_w)
+            fused = (reciprocal_rank_fusion(runs, weights=weights) if len(runs) > 1
+                     else list(runs[0]))
+            out[qid] = [c for c, _ in fused[:cand]]
+        return out
+
     def run(self, cfg: dict, qrels: dict, exclude: dict) -> dict[str, dict[str, float]]:
         bm25_w = cfg.get("bm25_weight", 1.0)
         dense_w = cfg.get("dense_weight", 1.0)

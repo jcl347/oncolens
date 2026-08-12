@@ -62,10 +62,7 @@ def main() -> int:
     # Reach into the fused chunk list rather than the document ranking: a cross-encoder
     # scores passages, so its negatives must be passages.
     print("building the retrieval pool for hard-negative mining ...")
-    pools = h.fused_chunks(cfg) if hasattr(h, "fused_chunks") else None
-    if pools is None:
-        print("  Harness has no fused_chunks(); falling back to per-query ranking")
-        pools = _fallback_pools(h, cfg, queries)
+    pools = h.fused_chunks(cfg)
 
     by_id = {c["chunk_id"]: c["text"] for c in chunks}
     chunk_doc = {c["chunk_id"]: c["doc_id"] for c in chunks}
@@ -111,25 +108,6 @@ def main() -> int:
     print("\n  NOTE: skipped queries are the recall failures. A reranker cannot fix those, "
           "which is why 3.8% never-retrieved is the hard ceiling (4.18).")
     return 0
-
-
-def _fallback_pools(h, cfg, queries) -> dict[str, list[str]]:
-    """Per-query fused chunk ids, using the Harness internals the loop already exercises."""
-    import numpy as np
-
-    pools: dict[str, list[str]] = {}
-    bm = h.bm25_run(cfg) if hasattr(h, "bm25_run") else None
-    if bm is not None:
-        return bm
-    # Last resort: reconstruct from the public run() by asking for the ranking hash is not
-    # possible, so recompute a simple fused list here with the same two arms.
-    qv = h.qvecs
-    dv = h.dvecs
-    sims = qv @ dv.T
-    for i, qid in enumerate(h.qids):
-        order = np.argsort(-sims[i])[: cfg["candidates"]]
-        pools[qid] = [h.chunk_ids[int(j)] for j in order]
-    return pools
 
 
 if __name__ == "__main__":

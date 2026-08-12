@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 
@@ -66,7 +67,13 @@ class CrossEncoderReranker:
 
     @property
     def name(self) -> str:
-        return "medcpt-cross" if self.model_name == MEDCPT_CROSS else "minilm-cross"
+        if self.model_name == MEDCPT_CROSS:
+            return "medcpt-cross"
+        if self.model_name == MINILM_CROSS:
+            return "minilm-cross"
+        # A local checkpoint. Named distinctly so a run cannot report a fine-tuned
+        # score under a base-model label, or the reverse.
+        return "finetuned-cross"
 
     def _device(self) -> str:
         import torch
@@ -142,10 +149,30 @@ class CrossEncoderReranker:
 _CACHE: dict[str, CrossEncoderReranker] = {}
 
 
+def finetuned_path() -> Path:
+    """Where `scripts/finetune_reranker.py` writes its checkpoint.
+
+    Under ``local_data_dir()`` for the §2 reason: the repo lives in OneDrive and a
+    ~400 MB checkpoint churning there causes sync storms and file locks.
+    """
+    from oncolens.env import local_data_dir
+
+    return local_data_dir() / "finetune_reranker"
+
+
 def get_reranker(name: str = "medcpt-cross") -> CrossEncoderReranker:
     """Resolve by short name, loading each model at most once per process."""
     key = (name or "medcpt-cross").lower()
     if key not in _CACHE:
+        if key == "finetuned-cross":
+            p = finetuned_path()
+            if not (p / "config.json").exists():
+                raise FileNotFoundError(
+                    f"no fine-tuned reranker at {p}; run scripts/finetune_reranker.py "
+                    f"first. Refusing to silently fall back to the base model, which "
+                    f"would report the BASE model's score under the fine-tuned name.")
+            _CACHE[key] = CrossEncoderReranker(str(p))
+            return _CACHE[key]
         model = {"medcpt-cross": MEDCPT_CROSS, "minilm-cross": MINILM_CROSS}.get(key)
         if model is None:
             raise ValueError(f"unknown cross-encoder {name!r}")

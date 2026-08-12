@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-03T17:00:02+00:00",
-  "git_rev": "16439b7",
+  "generated_at": "2026-08-12T04:11:31+00:00",
+  "git_rev": "1dc806a",
   "live_store_reachable": true,
   "store_error": null,
   "stages": [
@@ -27,7 +27,7 @@
           "unit": "",
           "note": "",
           "provenance": "live",
-          "command": "SELECT count(*) FROM chunks",
+          "command": "SELECT count(*) FROM chunks WHERE kind='passage'",
           "delta": null,
           "direction": "up"
         }
@@ -378,7 +378,7 @@
       "metrics": [
         {
           "label": "Database size",
-          "value": 1289,
+          "value": 1413,
           "unit": " MB",
           "note": "",
           "provenance": "live",

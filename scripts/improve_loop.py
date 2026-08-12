@@ -251,7 +251,7 @@ CANDIDATES: list[Candidate] = [
         "recovers most of tri_fusion's gain then the whole finding is fusion-weight "
         "tuning, MedCPT is unnecessary, and there is no hosted GPU endpoint to build.",
         {"dense_backend": "openai-768", "dense_weight": 2.0},
-        cost_note="free: one config line, no new index, no new model. Answers whether the "
+        cost_note="NOT free, despite what this note said for two rounds: the config is {dense_backend: openai-768}, and live index_config is openai/192. Shipping it needs a vector(192)->vector(768) migration, a full re-embed of 180,850 passages (~20 min, ~$0.55) and the 4.6 assert_embedding_matches path updated"
                   "expensive candidates were ever needed",
     ),
     Candidate(

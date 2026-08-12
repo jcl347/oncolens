@@ -1479,7 +1479,7 @@ every data and measurement gain by a wide margin.
 | candidate | dev result | status |
 |---|---|---|
 | `tri_fusion` | synthesis +0.0305, claim +0.0321, both p<0.0001 | promoted, **not shipped** |
-| `dense_weight_2x` | synthesis +0.0144, claim +0.0163 — *free*, one config line | promoted, **not shipped** |
+| `dense_weight_2x` | synthesis +0.0144, claim +0.0163 — ⚠️ **NOT free, see below** | promoted, **not shipped** |
 | `openai_768` | claim mrr +0.0093, p=0.0024 | promoted, **not shipped** |
 
 Production still serves the round-0 configuration. This is blocked on process, not
@@ -1487,7 +1487,9 @@ knowledge. ⚠️ But the locked `test` split is **one-shot** — spend it on th
 configuration, not incrementally. The two controls that attribute `tri_fusion`'s gain
 (`tri_fusion_balanced`, `dual_dense`) have still never run, and until they do it is unknown
 whether that +0.03 is MedCPT or simply a 1:2 lexical:dense weight change that
-`dense_weight_2x` already delivers for free.
+`dense_weight_2x` already delivers.
+
+⚠️ **Correction: `dense_weight_2x` is not free, and this file said it was for two rounds.** Its config is `{dense_backend: "openai-768", dense_weight: 2.0}` and the live `index_config` is `openai`/`192`. Shipping it requires a `vector(192)` → `vector(768)` migration, a full re-embed of 180,850 passages (~20 min, ~$0.55) and the §4.6 `assert_embedding_matches` path updated. The claim originated in `improve_loop`'s own `cost_note` and was copied here without checking the config it describes — §6.5 in the priority table that ranks the work, which is the worst place for it.
 
 #### 2. Keep fixing the instrument — it has outperformed every retrieval idea here
 

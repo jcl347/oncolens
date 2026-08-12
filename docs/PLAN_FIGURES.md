@@ -563,6 +563,134 @@ the effective resolution per panel, and it is the only change that alters what B
 can see. Registered as a hypothesis, not acted on: reordering on reasoning alone is what
 produced the caption error in §1.
 
+## 3.12 Going beyond the caption — critical evaluation
+
+The pixel gap is real (unstated data points, per-arm n, axis ranges, panel-level detail,
+everything in a blot) and §3.8b establishes that **no text-derived instrument can size it**.
+So the ordering below is by *risk-adjusted* value, and the first item is an instrument
+rather than a method, because without it every later number is unfalsifiable.
+
+### What is actually in these figures
+
+| figure kind | count | share | caption contains a number |
+|---|---|---|---|
+| flow cytometry | 3,159 | 19.1% | 97% |
+| western blot / gel | 1,876 | 11.4% | 98% |
+| **Kaplan–Meier / survival** | **1,666** | **10.1%** | 85% |
+| volcano / heatmap (omics) | 1,504 | 9.1% | 95% |
+| forest plot / meta-analysis | 525 | 3.2% | 79% |
+| dose-response / IC50 | 261 | 1.6% | 97% |
+| ROC / AUC | 193 | 1.2% | 92% |
+
+### 0. Masked-caption evaluation — an instrument, and it is free
+
+Hide the caption, extract from the image, score the extraction against the caption. Ground
+truth for **16,517 figures**, of which 79–98% contain a number, at zero annotation cost.
+This is the same found-data move as §4.4's citation contexts, one modality over.
+
+⚠️ **It is noisy in a specific, correctable direction.** A caption may state `n = 42` when
+42 appears nowhere in the plot, so a correct extractor is scored wrong. That makes it a
+**lower bound**. Calibrate by hand-checking ~100 items to estimate the unrecoverable
+fraction, then report extraction accuracy *net of it*. Do not skip the calibration — an
+uncalibrated lower bound gets quoted as an accuracy figure, which is §6.5's error.
+
+### 1. OCR — the most underrated option, and it should go first
+
+Scientific figures render **text as pixels**: axis labels, tick values, legends, p-values,
+`n =`, panel letters, and the at-risk table under a KM curve. Plain OCR (Surya, PaddleOCR,
+Tesseract) transcribes those literally.
+
+* **It cannot hallucinate.** It transcribes or it fails; it does not invent a plausible
+  number. That property is worth more here than accuracy, for the reason in §3.13.
+* Cheap and deterministic — no GPU strictly required, no prompt, no model drift.
+* Directly targets the one thing captions structurally lack: content rendered as glyphs
+  inside the image.
+* **Forest plots (525) are a near-perfect target** — they print the effect size and CI as
+  text next to every row.
+
+⚠️ **Its real limit is structure, not accuracy.** OCR yields `0.003` with no knowledge that
+it is a p-value belonging to panel B. For *retrieval* that is often enough — you want the
+figure findable by "p = 0.003". For *extraction* it is not, and pairing OCR with panel
+segmentation is what supplies the missing structure.
+
+### 2. Chart-to-table, made verifiable
+
+Only 27.5% applicable and CharXiv caps quality near 47%, so on its own it is weak. But it
+has one property prose description does not: **the output is checkable, and this corpus
+makes the check free.** 81.1% of figure-cited numbers appear in the caption, so:
+
+```
+derender(figure) -> table
+overlap(table values, numbers stated in caption/body) -> confidence
+index only the derendered tables that clear a confidence threshold
+```
+
+That converts an unreliable model into a **high-precision, low-recall** extractor, which is
+the right trade when the failure mode is poisoning an index. It also yields a per-figure
+quality score that can be reported rather than assumed.
+
+### 3. Domain-specific extraction: Kaplan–Meier reconstruction
+
+**1,666 figures, 10.1%**, and the highest value density in the corpus — a KM curve yields
+median OS, survival at *t*, and with the at-risk table a full IPD reconstruction, which is
+exactly what oncology queries ask for. The methodology is established (Guyot's iterative
+algorithm) and now automated end-to-end by
+[KM-GPT](https://arxiv.org/html/2509.18141) (2025).
+
+⚠️ Narrow, and real engineering for 10% of figures. Justified only because the extracted
+quantities are the ones users actually search for, and because unlike a generic VLM
+description the output is **structured, checkable against the caption's stated median, and
+directly answerable**. Rank it above generic VLM work on value density, below OCR on effort.
+
+### 4. Panel segmentation, supervised by the caption
+
+~50% of medical figures are multi-panel and PMC ships one image per `<fig>`. The free
+supervision is that **the caption enumerates the panels itself**:
+
+> *"(A) Rates of all-grade infections and (B) grade ≥3 infections among patients…"*
+
+So caption sub-sentences align to panel crops without annotation. Panels then improve
+everything downstream: ~6× effective resolution for any 224×224 encoder, panel-level
+provenance (`Fig 3B` rather than a six-panel composite), and the 2,154 measured panel-level
+in-text references become usable labels.
+
+### 5. VLM description — most general, most dangerous, and therefore last
+
+The only option covering the **22.7% pure imagery** (blots, micrographs, scans) that nothing
+else touches, and the only one that produces prose a dense encoder can use. Also the one
+with CharXiv's 47.1% and CHOCOLATE's documented systematic factual errors.
+
+**Use it for what it cannot get wrong in a costly way:** figure *type*, modality, what is
+being compared, which entities appear. Do **not** use it to mint numbers. See below.
+
+## 3.13 The failure mode nobody plans for: hallucinated retrieval bait
+
+The plan says generated text is "retrieval bait only, never shown as a finding". That guard
+is necessary and **not sufficient**, and it is worth being precise about why.
+
+Suppose a VLM writes *"median OS 18.9 months"* for a figure whose true value is 22.4:
+
+1. a query for **18.9 months** retrieves the **wrong** figure, confidently;
+2. a query for **22.4 months** **misses** the right one;
+3. the user sees the real caption and real image, so **the error is invisible** — it lives
+   entirely in the ranking layer, where nothing is displayed and nothing is checked.
+
+A wrong number in the index is therefore **worse than no number**, because it actively
+misroutes rather than merely failing to help. This is §4.15's pattern — a surface asserting
+more than the mechanism underneath knows — relocated to a layer with no surface at all.
+
+**The operating rule that follows:**
+
+> **Prefer transcription over inference for anything that enters the index.**
+> OCR'd glyphs and JATS markup are transcription. A derendered table validated against
+> stated values is transcription with a receipt. A VLM's free-text number is inference, and
+> inference belongs in the *answer*, next to the image, where a reader can see it is wrong.
+
+Practical consequence: index VLM **descriptions** (type, modality, entities, what is
+compared) and **withhold VLM numerals** unless they cross-check against a stated value. This
+costs little — the numbers are 81.1% in captions anyway — and it removes the only failure
+mode in this plan that degrades the system rather than leaving it unchanged.
+
 ## 4. Provenance: the constraint that shapes the schema
 
 §1 says a change that improves ranking and loses provenance is a regression. A figure has no
@@ -628,7 +756,8 @@ Recorded as decisions rather than prose so a later reader can see what was chose
 | stage | work | pre-registered prediction | stop if |
 |---|---|---|---|
 | **A** | figure labels from `<xref>`; exclude source passage; report n, MDE, ceiling | — instrument, not a candidate | ceiling < 1.0 after merging |
-| **A2** | **~200 hand-written pixel-only questions** from looking at figures | — instrument | cannot write them, i.e. the gap is smaller than assumed |
+| **A2** | **masked-caption extraction benchmark** (§3.12.0) + ~100 hand-checked items to calibrate its noise floor | — instrument | calibration shows the unrecoverable fraction dominates |
+| **A3** | **OCR every figure**, index the transcribed glyphs (§3.12.1) | figure `success@5` up ≥0.02; text strata NULL | OCR yield per figure is negligible |
 | **0′** | split captions into `kind='figure'` rows; attach `figure_id`, `image_uri`; fix `.Figure 1.` boundary | **NULL on every ranking stratum**; success = a chart can be returned and shown | any significant ranking change (means chunk boundaries moved) |
 | **1** | serialise `<table>` markup into retrievable rows | synthesis `recall@20` up ≥0.005 | regression on `claim` |
 | **2** | VLM description into `indexed_text`; chart-to-table for the 27.5% plottable | figure `success@5` up ≥0.02 **over a caption-only control** | control matches it — then it was just more text |

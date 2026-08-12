@@ -330,6 +330,24 @@ def load_qrels(split: str, stratum: str = "claim") -> tuple[dict, dict, dict]:
         return queries, qrels, exclude
     import hashlib
 
+    # FINE-TUNING SPLITS. A model trained on the queries it is then scored on will look
+    # excellent and mean nothing, so `ft_train` and `ft_holdout` partition DEV only — the
+    # locked test split is never touched by either. The hash is salted differently from the
+    # dev/test hash: reusing the same digest would make the two splits correlated, and a
+    # holdout that overlaps training by construction is not a holdout.
+    if split in ("ft_train", "ft_holdout"):
+        keep = {}
+        for qid in queries:
+            src = exclude.get(qid, qid)
+            h = int(hashlib.sha1(src.encode()).hexdigest()[:8], 16)
+            if (h % 100) >= 70:          # test — off limits to both
+                continue
+            hf = int(hashlib.sha1((src + ":finetune").encode()).hexdigest()[:8], 16)
+            in_train = (hf % 100) < 70
+            if (split == "ft_train") == in_train:
+                keep[qid] = queries[qid]
+        return keep, {k: v for k, v in qrels.items() if k in keep}, exclude
+
     keep = {}
     for qid in queries:
         src = exclude.get(qid, qid)
@@ -832,7 +850,10 @@ def main() -> int:
     ap.add_argument("--list", action="store_true")
     ap.add_argument("--run", action="append", default=[])
     ap.add_argument("--run-all", action="store_true")
-    ap.add_argument("--split", default="dev", choices=["dev", "test", "all"])
+    ap.add_argument("--split", default="dev",
+                    choices=["dev", "test", "all", "ft_train", "ft_holdout"],
+                    help="ft_train/ft_holdout partition DEV for fine-tuning; a model "
+                         "trained on ft_train must be scored on ft_holdout, never on dev")
     ap.add_argument("--stratum", default="claim",
                     choices=["claim", "concept", "identifier", "synthesis", "all"],
                     help="MEASURED: claim queries are 27 words, concept 2, identifier 1. "

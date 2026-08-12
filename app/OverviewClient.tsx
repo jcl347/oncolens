@@ -246,6 +246,19 @@ const PIPELINE = [
     body: "Results carry the matched clause and the characters it sits at, so a claim can "
         + "be checked against the paper instead of trusted.",
   },
+  {
+    // Deliberately numbered outside the retrieval path, because it IS outside it. Figures
+    // are stored and displayed and are excluded from both retrieval arms by an explicit
+    // SQL predicate, so adding them provably cannot move a ranking metric.
+    n: "R",
+    title: "Read",
+    sub: "the paper, with its figures",
+    body: "Opening a result shows the whole article in reading order, plus its figures: "
+        + "9,549 images served from NCBI's own Open Access store, with the publisher's "
+        + "verbatim caption. Figures are NOT part of retrieval — captions are already "
+        + "indexed as body text, so their effect on ranking is unmeasured and they are "
+        + "held out of both arms until it is.",
+  },
 ];
 
 /**

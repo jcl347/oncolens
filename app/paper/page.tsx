@@ -24,6 +24,19 @@ type Passage = {
   chunk_id: string; section: string; ordinal: number;
   start_char: number; end_char: number; text: string;
 };
+/**
+ * A figure as the store holds it. `image_uri` points at NCBI's own public object, not a
+ * copy: re-hosting 16,792 images would add a storage bill and a sync problem for nothing.
+ *
+ * `figure_type_source` is three-valued on purpose. "caption" means the publisher's own
+ * words named the type and it can be stated; anything else was inferred and is shown as
+ * such; null means unknown and is shown as nothing. §4.15's "not reported" lesson: a label
+ * rendered with the same confidence whether it was read or guessed is an over-claim.
+ */
+type Figure = {
+  figure_id: string; label: string; caption: string; image_uri: string;
+  figure_type: string | null; figure_type_source: string | null;
+};
 type Paper = {
   doc_id: string; title: string; year: number | null; pmid: string; pmcid: string | null;
   journal: string; license_code: string | null; full_text_chars: number | null;
@@ -31,6 +44,7 @@ type Paper = {
   mesh_major: string[]; mesh_minor: string[]; descriptors: string[];
   grants: { grant_id?: string; agency?: string }[];
   n_passages: number; passages: Passage[]; highlight: string;
+  n_figures?: number; figures?: Figure[];
 };
 
 export default function PaperPage() {
@@ -165,6 +179,7 @@ export default function PaperPage() {
                   <span className="rounded bg-white/5 px-1.5 py-0.5">{paper.license_code}</span>
                 )}
                 <span>{paper.n_passages} passages</span>
+                {!!paper.n_figures && <span>{paper.n_figures} figures</span>}
               </p>
 
               {paper.mesh_major.length > 0 && (
@@ -186,6 +201,77 @@ export default function PaperPage() {
                 </div>
               )}
             </header>
+
+            {/* ---------- figures ----------
+                Placed above the body text, because a reader scanning a paper looks at the
+                figures first and the passages exist to explain them. The image is loaded
+                from NCBI's public object store rather than a copy, so what is shown is the
+                published artifact — which is the provenance a caption cannot supply, since
+                a caption has no character range worth citing (§1). */}
+            {!!paper.figures?.length && (
+              <section className="mt-7">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2 className="text-xs uppercase tracking-[0.16em] text-teal/70">Figures</h2>
+                  <span className="font-mono text-[10px] text-slate-600">
+                    from PMC Open Access
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                  {paper.figures.map((f) => (
+                    <figure
+                      key={f.figure_id}
+                      id={`fig-${f.figure_id}`}
+                      className="overflow-hidden rounded-lg border border-white/10 bg-[#080d16]"
+                    >
+                      <a href={f.image_uri} target="_blank" rel="noreferrer"
+                         className="block bg-white" title="open the full-size image">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={f.image_uri}
+                          alt={f.caption.slice(0, 180)}
+                          loading="lazy"
+                          className="mx-auto max-h-80 w-auto max-w-full object-contain"
+                        />
+                      </a>
+                      <figcaption className="p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {f.label && (
+                            <span className="font-mono text-[11px] font-medium text-teal">
+                              {f.label}
+                            </span>
+                          )}
+                          {/* Only a type the PUBLISHER named is shown plainly. An inferred
+                              type would read as though the paper said it. */}
+                          {f.figure_type && f.figure_type_source === "caption" && (
+                            <span className="rounded border border-white/12 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-slate-400">
+                              {f.figure_type.replace(/-/g, " ")}
+                            </span>
+                          )}
+                          {f.figure_type && f.figure_type_source !== "caption" && (
+                            <span
+                              title="inferred from the image, not stated by the paper"
+                              className="rounded border border-amber-400/25 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-amber-300/70"
+                            >
+                              {f.figure_type.replace(/-/g, " ")} (inferred)
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+                          {f.caption}
+                        </p>
+                      </figcaption>
+                    </figure>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
+                  Images are served from NCBI&apos;s Open Access object store, not copied
+                  here. Captions are the publisher&apos;s own text, verbatim. Figures are
+                  shown for reading and are deliberately{" "}
+                  <span className="text-slate-500">not part of retrieval</span> — their
+                  effect on ranking has not been measured yet.
+                </p>
+              </section>
+            )}
 
             {/* ---------- abstract ---------- */}
             {abstract && (

@@ -193,18 +193,27 @@ def assert_embedding_matches(conn, backend_name: str, dim: int) -> None:
 # Hybrid search: RRF over a lexical arm and a dense arm, fused in SQL
 # --------------------------------------------------------------------------
 
-HYBRID_SEARCH_SQL = """
+#: Figure rows (``kind='figure'``) are stored so a paper can be READ with its images, and
+#: are excluded from both retrieval arms until their effect is measured. The exclusion is
+#: explicit in the SQL rather than implied by a NULL embedding, because a NULL embedding
+#: sorts unpredictably in an ORDER BY and would let figures leak into the dense arm silently
+#: — the corpus would change without any candidate having been run (docs/PLAN_FIGURES.md
+#: §3.9, Path A). Flip this to include them only behind a measured, pre-registered change.
+_RETRIEVABLE = "c.kind = 'passage'"
+
+HYBRID_SEARCH_SQL = f"""
 WITH lexical AS (
     SELECT c.chunk_id, c.doc_id,
            ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.tsv, plainto_tsquery('english', $1)) DESC) AS rank
     FROM chunks c
-    WHERE c.tsv @@ plainto_tsquery('english', $1)
+    WHERE {_RETRIEVABLE} AND c.tsv @@ plainto_tsquery('english', $1)
     LIMIT $3
 ),
 dense AS (
     SELECT c.chunk_id, c.doc_id,
            ROW_NUMBER() OVER (ORDER BY c.embedding <=> $2::vector) AS rank
     FROM chunks c
+    WHERE {_RETRIEVABLE} AND c.embedding IS NOT NULL
     ORDER BY c.embedding <=> $2::vector
     LIMIT $3
 ),

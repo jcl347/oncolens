@@ -305,6 +305,10 @@ def compare(index: LiveIndex, query: str, *, n_papers: int = 5,
                        ts_rank_cd(c.tsv, to_tsquery('english', %(tsq)s)) AS rank
                 FROM chunks c
                 WHERE c.doc_id = ANY(%(docs)s)
+                  -- Body passages only. Figure rows exist for reading, not comparison:
+                  -- a caption answering an aspect would look like the paper reported it
+                  -- in text, which is the "not reported" over-claim §4.15 corrected.
+                  AND c.kind = 'passage'
                   AND c.tsv @@ to_tsquery('english', %(tsq)s)
                   AND (NOT %(numeric)s OR c.text ~ '[0-9]')
                 ORDER BY c.doc_id, rank DESC
@@ -405,12 +409,29 @@ def get_document(index: LiveIndex, doc_id: str, *, highlight: str = "") -> dict 
 
         cur.execute(
             """SELECT chunk_id, section, ordinal, start_char, end_char, text
-               FROM chunks WHERE doc_id = %s
+               FROM chunks WHERE doc_id = %s AND kind = 'passage'
                ORDER BY section, ordinal""", (doc_id,))
         passages = [
             {"chunk_id": r[0], "section": r[1], "ordinal": r[2],
              "start_char": r[3], "end_char": r[4], "text": r[5]}
             for r in cur.fetchall()
+        ]
+
+        # Figures are read alongside the text, so the reading page can show what the
+        # passages refer to. `image_uri` points at NCBI's own public object, which is the
+        # artifact a reader verifies against — a caption has no character range worth
+        # citing, so the picture IS the provenance (§1).
+        cur.execute(
+            """SELECT figure_id, figure_label, text, image_uri, figure_type, figure_type_src
+               FROM chunks WHERE doc_id = %s AND kind = 'figure'
+               ORDER BY figure_id""", (doc_id,))
+        figures = [
+            {"figure_id": r[0], "label": r[1] or "", "caption": r[2],
+             "image_uri": r[3], "figure_type": r[4],
+             # 'caption' means the publisher's own words named the type; anything else is
+             # inferred and must not be shown as though the paper said it.
+             "figure_type_source": r[5]}
+            for r in cur.fetchall() if r[3]
         ]
 
     meta = meta if isinstance(meta, dict) else {}
@@ -433,6 +454,8 @@ def get_document(index: LiveIndex, doc_id: str, *, highlight: str = "") -> dict 
         "grants": meta.get("grants") or [],
         "n_passages": len(passages),
         "passages": passages,
+        "n_figures": len(figures),
+        "figures": figures,
         "highlight": highlight,
         "source": "neon",
     }

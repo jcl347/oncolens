@@ -741,6 +741,118 @@ compared) and **withhold VLM numerals** unless they cross-check against a stated
 costs little — the numbers are 81.1% in captions anyway — and it removes the only failure
 mode in this plan that degrades the system rather than leaving it unchanged.
 
+## 3.14 MEASURED: what BiomedCLIP can actually extract, on this corpus
+
+Rather than continue arguing from architecture, I ran it. `scripts/probe_biomedclip.py`
+fetches real figure images via `pmc_cloud` `media_urls`, and zero-shot classifies them
+against eight plain type prompts. Reference labels come from captions that match exactly one
+type pattern — noisy, so this is *agreement with a noisy reference*, not accuracy.
+
+**n = 69 real PMC figures, 8 classes, chance = 12.5%. Shared embedding dim = 512.**
+
+| | measured |
+|---|---|
+| **top-1 agreement** | **60.9%** |
+| **top-2 agreement** | **75.4%** |
+
+| class | agreement | confused with |
+|---|---|---|
+| flow cytometry plot | 83% (5/6) | bar chart |
+| kaplan-meier survival curve | 73% (8/11) | heatmap ×2, bar chart |
+| bar chart | 73% (11/15) | microscopy ×2 |
+| schematic diagram | 64% (7/11) | flow cytometry ×3 |
+| western blot | 55% (6/11) | **bar chart ×4** |
+| heatmap | 50% (4/8) | **flow cytometry ×3** |
+| **microscopy image** | **17% (1/6)** | forest plot ×2 |
+
+### What this establishes, and what it does not
+
+**It extracts *type*, at roughly 5× chance.** That is real signal and it is the one thing
+CLIP-family models do well at 224×224 — gist. It does **not** extract values; nothing here
+contradicts §3.10.
+
+⚠️ **60.9% is too weak to be authoritative.** It cannot be a hard filter ("show only survival
+curves" would silently drop 27% of them). It is usable as a *soft* signal, a suggested
+facet, or a fallback where captions are silent.
+
+⚠️ **The confusion pattern is the most informative part, and it is evidence for panel
+segmentation — measured rather than assumed.** Western blot → bar chart (4/11) and heatmap →
+flow cytometry (3/8) are exactly what a **multi-panel composite** produces: the figure
+genuinely contains both, and whichever panel dominates the pixels wins. **Type classification
+on a whole multi-panel figure is ill-posed — there is no single correct answer.** ~50% of
+these figures are multi-panel, so a large share of the 39% "error" may be the reference
+being wrong rather than the model.
+
+⚠️ **It is weakest exactly where it would be most useful.** Microscopy — the 22.7% pure-imagery
+class that captions describe thinly and no other method touches — scores 17%. Sample is 6, so
+treat as a flag to re-measure, not a finding.
+
+⚠️ **Sample caveats, stated plainly:** n=69 (127 sampled, 69 images resolved — 54% of
+`media_urls` fetched), one class had n=1 and is uninformative, and the reference is
+caption-derived. This is a feasibility probe, not a benchmark.
+
+## 3.15 Implementation plan: type extraction and cross-paper comparison
+
+### The cascade — captions first, model second
+
+Captions are **precise when they fire**: a caption saying "Kaplan-Meier" is near-certain
+evidence. The caption regex classified 59.5% of figures and left **40.5% unclassified**.
+BiomedCLIP's job is that residue, not the whole task. Same shape as the terminology cascade
+in §4.14 — authoritative source first, model where the source is silent.
+
+```
+figure_type(fig):
+    if caption matches exactly one type pattern  -> that type,  confidence "stated"
+    elif BiomedCLIP top-1 margin > threshold     -> that type,  confidence "inferred"
+    else                                          -> unknown,  and SAY unknown
+```
+
+Three-valued output is load-bearing. §4.15's "not reported" lesson: a cell that renders as
+blank when the mechanism merely failed to decide is a claim the system cannot support.
+
+### Storage — unchanged from §3.11, plus two columns
+
+```sql
+ALTER TABLE chunks ADD COLUMN figure_type       TEXT;   -- 'kaplan-meier' | ... | NULL
+ALTER TABLE chunks ADD COLUMN figure_type_src   TEXT;   -- 'caption' | 'biomedclip' | NULL
+```
+
+The 512-dim `image_embedding` from §3.11 is **34 MB** for all 16,792 figures and is what the
+zero-shot pass consumes, so typing costs one extra matrix multiply against 8 text vectors —
+effectively free once the images are embedded.
+
+### Cross-paper comparison — and why image similarity is the wrong key
+
+The natural fit is the **existing `/api/compare`**, which already builds cross-paper tables
+by aspect. A figure row is the same shape: *for these 4 papers, show the survival curves*.
+
+⚠️ **Do not build this on image-to-image similarity.** Near-duplicate detection over
+scientific figures is proven at scale (ImageTwin, 160M+ images, western blots and
+microscopy), but **near-duplicate is not the same relation as comparable**:
+
+* two Kaplan–Meier curves for *different drugs* look nearly identical and are **not**
+  comparable;
+* two IHC panels of the *same marker* with different staining protocols look different and
+  **are** comparable.
+
+Visual similarity is a poor proxy for scientific comparability, and the failure is silent.
+The correct key is **type + topic** — type from the cascade above, topic from the caption
+text already indexed. Both are cheap, both are inspectable, and neither requires an image
+comparison. Image similarity has one legitimate use here and it is *research integrity*
+(same figure reused across papers), which is a different product.
+
+### Registered predictions
+
+| stage | prediction |
+|---|---|
+| caption-first typing | covers 59.5% at "stated" confidence; no ranking effect |
+| + BiomedCLIP on the residue | coverage 59.5% → ~85%, at ~61% precision on the inferred portion; **ranking NULL** |
+| type facet in search/compare | product capability; **ranking NULL on all four strata** |
+| after panel segmentation | typing agreement **improves** — the multi-panel confusions above are the mechanism, and this is the sharpest test of whether panels are worth building |
+
+**Everything here is registered as ranking-NULL.** The value is faceting and comparison, not
+retrieval quality. Per §3.12 the only figure work with a plausible ranking effect is OCR.
+
 ## 4. Provenance: the constraint that shapes the schema
 
 §1 says a change that improves ranking and loses provenance is a regression. A figure has no

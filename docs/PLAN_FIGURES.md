@@ -229,6 +229,52 @@ prediction confirmed rather than disappointment.
 
 ---
 
+## 3.8b The 18.9% is not a pixel gap, and the real gap cannot be measured from text
+
+The obvious next move after "81.1% of figure-cited numbers are in the caption" is to chase
+the other 18.9% with a vision model. Measured on 700 sampled documents, 10,137 such
+literals:
+
+| where the value actually is | share |
+|---|---|
+| elsewhere in the body text | **42.1%** |
+| in a `<table>` in the same paper | **21.3%** |
+| in another figure's caption | **12.8%** |
+| nowhere else in the XML | 23.8% |
+
+**76.2% are recoverable from text that is already indexed** — and the last bucket is mostly
+an artifact of the instrument. It required a value to appear **twice** before counting as
+text-available, so a number stated once, in the citing sentence, was misfiled as pixel-only.
+The examples confirm it:
+
+> *"the LCK metagene had the highest prognostic value … with a univariate hazard ratio of
+> **1.81** (95% confidence interval = **1.22** to **2.71**, P = **0.003**)."*
+
+Every one of those four values is in a body sentence, and body sentences are indexed.
+
+### ⚠️ The epistemic limit, which is the actual finding
+
+**Any number an author states is, by construction, in the text.** The instrument here reads
+sentences, so it can only ever find values someone wrote down — and those are exactly the
+values already retrievable. **A text-derived measurement cannot size the pixel gap, because
+the pixel gap is precisely what text does not contain:**
+
+* every point on a survival curve other than the two the abstract quotes;
+* the n in each arm when only the total is stated;
+* axis ranges, error-bar magnitudes, the shape of a dose-response;
+* which of eight panels shows the effect, when the caption lists all eight;
+* everything in a western blot, micrograph or flow plot.
+
+That gap is real and probably large. **It is also invisible to every label source this
+project has** — citation contexts, MeSH, and figure xrefs are all text. Sizing it requires
+an instrument built from images: a small hand-annotated pixel-only set, ~200 questions,
+written by someone looking at figures rather than at sentences. That is the only honest way,
+and it should be built before, not after, committing to a vision stack.
+
+**Consequence for the roadmap.** Do not justify a vision model by the 18.9%. That number is
+a text-retrieval problem, and 21.3% of it is literally "the value is in a table in the same
+paper" — the *table extraction first* principle, confirmed on this corpus.
+
 ## 3.9 Architecture: how a figure becomes retrievable
 
 ### The schema already separates "what is indexed" from "what is shown"
@@ -335,6 +381,64 @@ figures come out of the same pass:
 `upsert_chunks(replace=True)` already deletes a document's chunks before inserting (§4.1),
 so re-ingestion will not leave stale figure rows behind.
 
+## 3.10 BiomedCLIP vs ColPali/ColQwen — and what neither of them does
+
+### They are retrievers, not extractors
+
+Both compute similarity. **Neither reads a value off an axis.** If the question is "what was
+median OS in the combination arm", a retriever surfaces the right figure and cannot tell you
+18.9 months. Extraction needs a *generative* model — VLM description or chart-to-table — and
+[CharXiv](https://arxiv.org/abs/2406.18521) puts the ceiling there at **GPT-4o 47.1%** on
+real scientific charts against **80.5% human**. Keep the two jobs separate when choosing.
+
+### The comparison, for 16,792 figures
+
+| | **BiomedCLIP** | **ColPali / ColQwen** |
+|---|---|---|
+| architecture | CLIP-style dual encoder, **one vector per image** | late interaction, **~1,024 patch vectors × 128-d per image** |
+| training | **PMC-15M** — 15M biomedical figure-caption pairs, i.e. *this corpus's own distribution* | general documents; no biomedical specialisation |
+| storage here | 16,792 × 512 × 4B ≈ **34 MB** | 16,792 × 1024 × 128 × 4B ≈ **8.8 GB** (~260×) |
+| fits current infra? | **yes** — a pgvector column, cosine, HNSW, exactly like `chunks.embedding` | **no** — MaxSim is not a pgvector ANN op; needs a separate store or a rerank-only pattern |
+| reported retrieval | 77% top-5 / 56% top-1 text→image; >90% top-5 against 700k candidates | SOTA on ViDoRe (page retrieval) |
+| known weakness | class-wise P@1 **0.240** vs sample-wise 0.594 — poor at category-level discrimination | storage/latency; recoverable via int8 (4×), Matryoshka 1024→256 (<2% recall loss), or token merging (Light-ColPali holds 98.4% NDCG@5 at 4× merge) |
+| provenance | image-level — compatible with §1 | patch grid over a **page** — **no character offsets, conflicts with §1** |
+
+### Why ColPali is the wrong first pick *here* specifically
+
+Three reasons, in descending strength:
+
+1. **Its premise does not apply.** ColPali exists to skip a lossy OCR/parsing pipeline on
+   PDFs. This corpus has no PDFs — it has JATS, the publisher's own markup, and figure
+   images as separate files. The parsing ColPali avoids is *already not lossy*. Applied to
+   individual figure images it degrades to "a very expensive image retriever".
+2. **Recall is not the binding constraint.** The guidance for choosing multi-vector is that
+   it wins *when recall binds and queries are visually hard*. Measured here (§4.18):
+   **recall@1000 = 0.9624**, recall@20 = 0.7638, and `recall@1` = 0.3900. The gap is
+   **ranking**, not finding. Multi-vector buys recall at 260× storage in a system whose
+   recall is already 0.96.
+3. **It breaks §1.** A patch grid has no `(doc_id, section, start_char, end_char)`. It can
+   be a fusion arm or a reranker; it cannot be the path that produces a citable result.
+
+### Why BiomedCLIP is the right *experiment*, with one caveat
+
+It is domain-matched the way MedCPT was for text — trained on PMC figure-caption pairs,
+which is literally this corpus's distribution — and it costs 34 MB and one pgvector column.
+That is cheap enough to test properly.
+
+⚠️ **But run the control, because this project has been wrong here twice.** Round 2:
+MedCPT looked better than the capacity control on the underpowered stratum, and the powered
+stratum **reversed the sign**. Round 4: the general cross-encoder control **inverted**,
+which is what proved domain training was doing the work. So pair BiomedCLIP with a
+**general CLIP** control on identical figures. If general CLIP matches it, the gain is
+"having an image encoder at all", not biomedical training.
+
+⚠️ **And the caveat that may kill it:** CLIP-family models match *gist*, not text-in-image.
+They will match "a Kaplan-Meier curve about lung cancer"; they will not match "median OS
+18.9 months", because that string is rendered pixels the encoder was never trained to read.
+Since **caption text is already indexed and already carries the gist**, BiomedCLIP's
+marginal value over the existing text arm is genuinely uncertain — it may be near zero. That
+is the hypothesis to register, not assume.
+
 ## 4. Provenance: the constraint that shapes the schema
 
 §1 says a change that improves ranking and loses provenance is a regression. A figure has no
@@ -378,6 +482,39 @@ interesting engineering and the less certain payoff; whole-figure descriptions a
 first, and if those do not help, panels will not either.
 
 ---
+
+## 5b. Design decisions, and what each one rules out
+
+Recorded as decisions rather than prose so a later reader can see what was chosen *against*.
+
+| # | decision | chosen | rejected | because |
+|---|---|---|---|---|
+| D1 | segmentation source | **JATS markup** | page-layout detection | 99.9% figure image refs already; PubLayNet's own labels were *derived from JATS* |
+| D2 | index topology | **one `chunks` table, `kind='figure'`** | separate figure index | a third arm re-opens §4.14's unresolved lexical:dense confound |
+| D3 | what is embedded | **`indexed_text`** (caption + citing sentences + later VLM text) | embedding the image first | caption text already carries the gist and is already indexed at ~100% coverage |
+| D4 | what is displayed | **`text` = verbatim caption + the image** | generated description | §4.4 + CHOCOLATE: generated text is bait, never a finding. Enforced by the schema, not by a code path |
+| D5 | table handling | **serialise existing `<table>` markup** | table-structure recognition from pixels | 95.3% already machine-readable; 21.3% of "missing" figure numbers live in these tables |
+| D6 | figure result shape | **Path A attach + Path B `kind=figure`** | replacing doc aggregation | Path A leaves every current metric untouched, so a regression veto still means something |
+| D7 | image encoder, if any | **BiomedCLIP first, with a general-CLIP control** | ColPali/ColQwen | premise (lossy PDF parsing) does not apply; recall@1000 = 0.9624 so recall does not bind; 260× storage; breaks §1 |
+| D8 | value extraction | **VLM/chart-to-table, separate from retrieval** | expecting a retriever to extract | retrievers compute similarity; CharXiv caps extraction at 47.1% |
+| D9 | pixel-gap sizing | **~200 hand-written image-only questions** | deriving it from figure xrefs | every author-stated number is already in text; text labels are structurally blind to the pixel gap |
+
+## 5c. Sequence, with the gate that stops each stage
+
+| stage | work | pre-registered prediction | stop if |
+|---|---|---|---|
+| **A** | figure labels from `<xref>`; exclude source passage; report n, MDE, ceiling | — instrument, not a candidate | ceiling < 1.0 after merging |
+| **A2** | **~200 hand-written pixel-only questions** from looking at figures | — instrument | cannot write them, i.e. the gap is smaller than assumed |
+| **0′** | split captions into `kind='figure'` rows; attach `figure_id`, `image_uri`; fix `.Figure 1.` boundary | **NULL on every ranking stratum**; success = a chart can be returned and shown | any significant ranking change (means chunk boundaries moved) |
+| **1** | serialise `<table>` markup into retrievable rows | synthesis `recall@20` up ≥0.005 | regression on `claim` |
+| **2** | VLM description into `indexed_text`; chart-to-table for the 27.5% plottable | figure `success@5` up ≥0.02 **over a caption-only control** | control matches it — then it was just more text |
+| **3** | BiomedCLIP image vectors, **plus general-CLIP control** | figure `success@5` up ≥0.02 over Stage 2 | general CLIP matches — then domain training bought nothing |
+| **4** | panel segmentation | pixel-only set improves; caption-answerable **NULL** | Stage 2 already saturates pixel-only |
+| **5** | ColPali/ColQwen | — attribution control only | never ships as primary (§1) |
+
+**Cheapest-first is deliberate and it is also the ordering most likely to end early.** If
+0′ and 1 deliver the product capability and Stage 2's caption-only control matches the VLM,
+the correct outcome is to stop — and that would be a real result, not a failure.
 
 ## 6. Registered as predicted to fail
 

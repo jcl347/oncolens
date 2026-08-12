@@ -68,6 +68,9 @@ ALTER TABLE chunks ADD COLUMN IF NOT EXISTS figure_type_src TEXT;
 -- mean injecting untrusted markup into the page; a JSON grid renders as a real table with
 -- no such exposure, and it is also what makes the cells addressable later.
 ALTER TABLE chunks ADD COLUMN IF NOT EXISTS table_rows      JSONB;
+-- Every type the caption names. 36.5% of figures match more than one, so a single
+-- column made the label arbitrary for a third of the corpus.
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS figure_types    JSONB;
 CREATE INDEX IF NOT EXISTS chunks_kind_idx ON chunks (doc_id, kind);
 """
 
@@ -81,11 +84,28 @@ def txt(el) -> str:
     return " ".join("".join(el.itertext()).split()) if el is not None else ""
 
 
+def classify_all(caption: str) -> list[str]:
+    """EVERY type the publisher's caption names, not just the first.
+
+    ⚠️ **The single-label version was discarding information it had already computed.**
+    Measured on 1,224 held-out figures, **36.5% match more than one pattern** — a composite
+    panel genuinely is both a western blot and a bar chart, and ~50% of biomedical figures
+    are multi-panel. Returning the first match made the label arbitrary for a third of the
+    corpus, and it is what made the type look hard to predict: a semantic classifier scored
+    50.7% against the single label and 58.7% against any valid one, and 8 of those points
+    were the evaluation being wrong rather than the model.
+
+    So the fix for "the regex is too crude" turned out not to be a better classifier. It
+    was to stop throwing away what the regex already knew.
+    """
+    return [name for name, pat in FIGURE_TYPES if re.search(pat, caption, re.I)]
+
+
 def classify(caption: str) -> str | None:
-    for name, pat in FIGURE_TYPES:
-        if re.search(pat, caption, re.I):
-            return name
-    return None
+    """The primary type: first match in FIGURE_TYPES order. Kept for the page's single
+    chip and for callers that want one answer; `classify_all` is the honest set."""
+    all_ = classify_all(caption)
+    return all_[0] if all_ else None
 
 
 def figures_from_jats(path: Path) -> list[dict]:
@@ -125,6 +145,7 @@ def figures_from_jats(path: Path) -> list[dict]:
             "pmcid": pmcid, "fig_id": fid, "label": label, "caption": cap,
             "file": href.split("/")[-1], "cites": ctx,
             "figure_type": classify(cap),
+            "figure_types": classify_all(cap),
         })
     return out
 
@@ -272,6 +293,7 @@ def main() -> int:
             f"{f['label']} {cap} {f['cites']}".strip(),
             "figure", f"{f['pmcid']}:{f['fig_id']}", u, f["label"] or None,
             f["figure_type"], "caption" if f["figure_type"] else None,
+            json.dumps(f["figure_types"]) if f["figure_types"] else None,
         ))
 
     # Tables. `text` is the caption verbatim; the grid goes in `table_rows` as JSON so the
@@ -300,13 +322,14 @@ def main() -> int:
             cur.executemany(
                 """INSERT INTO chunks (chunk_id, doc_id, section, ordinal, start_char,
                         end_char, text, indexed_text, kind, figure_id, image_uri,
-                        figure_label, figure_type, figure_type_src)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        figure_label, figure_type, figure_type_src, figure_types)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (chunk_id) DO UPDATE SET
                         text=EXCLUDED.text, indexed_text=EXCLUDED.indexed_text,
                         image_uri=EXCLUDED.image_uri, figure_label=EXCLUDED.figure_label,
                         figure_type=EXCLUDED.figure_type,
-                        figure_type_src=EXCLUDED.figure_type_src""", rows)
+                        figure_type_src=EXCLUDED.figure_type_src,
+                        figure_types=EXCLUDED.figure_types""", rows)
             cur.executemany(
                 """INSERT INTO chunks (chunk_id, doc_id, section, ordinal, start_char,
                         end_char, text, indexed_text, kind, figure_id, image_uri,

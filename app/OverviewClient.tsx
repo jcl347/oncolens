@@ -408,6 +408,122 @@ const GUARDS = [
 
 /** How the tool is used. Placed above the design narrative because a reader who cannot
  *  work the thing has no reason to care how it was built. */
+/**
+ * The infrastructure, and what each piece is FOR.
+ *
+ * A reader evaluating a retrieval system wants to know what it runs on and why those
+ * choices, not a logo wall. Each row names the decision, the alternative that was rejected,
+ * and the measurement or constraint that decided it — so the list reads as reasoning rather
+ * than as a stack.
+ */
+const INFRASTRUCTURE = [
+  {
+    layer: "Store",
+    what: "Neon Postgres + pgvector",
+    why: "Passages, embeddings, documents, grants and MeSH live in ONE database, so a "
+       + "retrieval result can be joined against funding and indexing without a second "
+       + "system. HNSW over cosine, because the vectors are L2-normalised and IVFFlat "
+       + "needs a training step this corpus does not justify.",
+    instead: "a dedicated vector DB — which would put the metadata a query needs on the "
+           + "other side of a network hop",
+  },
+  {
+    layer: "Retrieval",
+    what: "BM25 + dense, fused by Reciprocal Rank Fusion",
+    why: "RRF combines RANKS, not scores. BM25 is unbounded and cosine lives in [-1,1], so "
+       + "a naive weighted sum is dominated by whichever has the larger numeric range. "
+       + "Both arms run in SQL in one round trip.",
+    instead: "score normalisation, which needs a calibration set that does not exist here",
+  },
+  {
+    layer: "Embeddings",
+    what: "text-embedding-3-small at 192 dimensions",
+    why: "Matryoshka truncation: the same model serves 192 or 768 dims, so vector width is "
+       + "a measurable knob rather than a model migration. 192 keeps the whole index inside "
+       + "a serverless function's reach.",
+    instead: "MedCPT as the dense arm — measured WORSE on find-the-source, and it needs "
+           + "torch (~2 GB), which does not fit a Vercel function",
+  },
+  {
+    layer: "Reranking",
+    what: "MedCPT cross-encoder over the fused top 50",
+    why: "A bi-encoder embeds query and passage separately and cannot represent an "
+       + "interaction between them: it knows a passage is ABOUT a topic, not whether it "
+       + "REPORTS the finding. Largest measured gain in the project.",
+    instead: "an LLM reranker at ~$0.0017/query, which made depth a budget decision and a "
+           + "full evaluation sweep cost real money",
+  },
+  {
+    layer: "Figures & tables",
+    what: "JATS markup; images served from NCBI's own S3",
+    why: "PMC publishes structured XML, so figure captions, image URLs and table GRIDS are "
+       + "already stated by the publisher. Nothing is OCR'd and no image is re-hosted. "
+       + "Tables keep their row and column headers, so a hazard ratio does not become a "
+       + "decontextualised number.",
+    instead: "page-layout detection — which would re-derive from pixels what the markup "
+           + "already states, and PubLayNet's own training labels came from this same XML",
+  },
+  {
+    layer: "Serving",
+    what: "Next.js on Vercel, Python functions for the API",
+    why: "The retrieval path is Python because the harness is; the same code answers a "
+       + "query in production and in the evaluation loop, so the thing measured is the "
+       + "thing served.",
+    instead: "a bundled snapshot artifact — which served a corpus the site no longer had",
+  },
+  {
+    layer: "Evaluation",
+    what: "Citation-mined labels, four strata, a locked test split",
+    why: "Labels are FOUND, not written: a sentence citing a paper is a domain expert "
+       + "describing it after reading it. Nothing was annotated for this project, so the "
+       + "benchmark cannot be tuned toward the answers.",
+    instead: "hand-judged relevance — which does not scale and grades our own homework",
+  },
+];
+
+/**
+ * Design decisions, stated as the decision plus the thing it rules out.
+ *
+ * Written this way because a decision without its rejected alternative is not a decision,
+ * it is a description — and several of these exist only because the obvious choice was
+ * tried first and measured worse.
+ */
+const DECISIONS = [
+  {
+    q: "Why are figures shown but not searched?",
+    a: "Captions are ALREADY indexed — NCBI inlines them into the plain text, at a measured "
+     + "median of 100% token coverage. So the text a figure carries is already retrievable, "
+     + "and adding figure rows to the index would change the corpus every candidate has "
+     + "been measured against. They are stored, displayed, and excluded from both retrieval "
+     + "arms by an explicit SQL predicate until that effect is measured.",
+  },
+  {
+    q: "Why isn't a vision model reading the plots?",
+    a: "Because the failure is silent. A model that writes \"median OS 18.9 months\" where "
+     + "the truth is 22.4 means a query for 18.9 retrieves the WRONG figure confidently and "
+     + "a query for 22.4 misses the right one — and the reader sees the real caption and "
+     + "image, so the error is invisible. It lives in the ranking layer, where nothing is "
+     + "displayed and nothing is checked. The rule is: prefer transcription over inference "
+     + "for anything that enters the index.",
+  },
+  {
+    q: "Why a keyword list for figure types, when the notes argue against regexes?",
+    a: "Because the publisher already named the type: a caption saying \"Kaplan-Meier\" is "
+     + "the paper stating a fact, and matching that word is recognition, not inference. A "
+     + "semantic classifier was built for the half it misses and MEASURED AS UNUSABLE — "
+     + "80% precision only at 3.3% coverage. It is not applied. What did work was noticing "
+     + "36.5% of figures match SEVERAL types, so the fix was to stop discarding what the "
+     + "keyword list already computed.",
+  },
+  {
+    q: "Why does nothing here ship on a good-looking number?",
+    a: "One pre-registered gate metric per query type, Holm-corrected across the candidates "
+     + "tried in a round, with every other metric acting as an uncorrected veto. A change "
+     + "ships only if it improves at least one query type and worsens none. Five rounds "
+     + "have produced far more refutations than promotions, which is the point.",
+  },
+];
+
 const HOW_TO_USE = [
   {
     n: "01",
@@ -628,6 +744,112 @@ export default function OverviewClient({ journey, clusters }: { journey: Journey
             controls that would attribute its gain have not run, two of the four query
             types were not evaluated, and the locked test split is unspent.
           </p>
+        </section>
+
+        {/* ---------- infrastructure ---------- */}
+        <section className="border-b border-white/8 py-14">
+          <SectionHeading>What it runs on, and why</SectionHeading>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-400">
+            Each row names the choice, what it was chosen{" "}
+            <em className="not-italic text-slate-300">instead of</em>, and the constraint or
+            measurement that decided it. Several of these exist only because the obvious
+            option was tried first and measured worse.
+          </p>
+          <div className="mt-5 space-y-px overflow-hidden rounded-lg bg-white/8">
+            {INFRASTRUCTURE.map((r) => (
+              <div key={r.layer} className="bg-[#080d16] p-4 sm:grid sm:grid-cols-[9rem_1fr] sm:gap-5">
+                <div>
+                  <h3 className="text-xs font-medium text-white">{r.layer}</h3>
+                  <p className="mt-1 text-[11px] leading-relaxed text-teal/80">{r.what}</p>
+                </div>
+                <div className="mt-2 sm:mt-0">
+                  <p className="text-xs leading-relaxed text-slate-400">{r.why}</p>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-slate-600">
+                    <span className="uppercase tracking-wider text-slate-700">instead of</span>{" "}
+                    {r.instead}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ---------- figures and tables ---------- */}
+        <section className="border-b border-white/8 py-14">
+          <SectionHeading>Figures and tables</SectionHeading>
+          <div className="mt-3 max-w-2xl space-y-3 text-sm leading-relaxed text-slate-400">
+            <p>
+              Opening any result shows the whole paper with its{" "}
+              <span className="text-slate-200">9,549 figures</span> and{" "}
+              <span className="text-slate-200">3,682 tables</span>. Images are served from
+              NCBI&apos;s own Open Access store rather than copied, and captions are the
+              publisher&apos;s verbatim text. Tables keep their row and column headers, so a
+              hazard ratio arrives with the label that gives it meaning instead of as a loose
+              number in a stream of cells.
+            </p>
+            <p>
+              <span className="text-slate-200">What is deliberately missing is the reading
+              of the plots.</span> A Kaplan-Meier curve, a dose-response curve and a forest
+              plot all encode their result <em className="not-italic text-slate-200">
+              positionally</em> — the answer is where the lines sit relative to each other,
+              and nothing in the file says which arm did better. So the honest question is
+              whether a vision model can recover that, and it was measured rather than
+              assumed.
+            </p>
+          </div>
+
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[480px] text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-white/10">
+                  <th className="py-2 pr-4 font-normal">figure type</th>
+                  <th className="py-2 pr-4 text-right font-normal">n</th>
+                  <th className="py-2 pr-4 text-right font-normal">sees the image</th>
+                  <th className="py-2 pr-4 text-right font-normal">caption only</th>
+                  <th className="py-2 pr-4 text-right font-normal">gain from looking</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-300">
+                {[["Kaplan-Meier", 58, "9%", "0%", "+9%"],
+                  ["ROC curve", 15, "0%", "0%", "0%"],
+                  ["Forest plot", 11, "0%", "0%", "0%"],
+                  ["Dose-response", 6, "0%", "0%", "0%"]].map(([t, n, v, b, g]) => (
+                  <tr key={String(t)} className="border-b border-white/5">
+                    <td className="py-2.5 pr-4">{t}</td>
+                    <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-slate-400">{n}</td>
+                    <td className="py-2.5 pr-4 text-right font-mono tabular-nums">{v}</td>
+                    <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-slate-500">{b}</td>
+                    <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-amber-300/80">{g}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-4 max-w-2xl border-l-2 border-amber-400/40 bg-amber-400/[0.03] py-3 pl-4 pr-4 text-sm leading-relaxed text-amber-200/70">
+            A vision model was asked to recover the exact value the paper&apos;s own authors
+            quoted from each figure, scored twice: once seeing the image, once seeing only the
+            caption. <span className="text-amber-100">6% against 0%.</span> The gap is what
+            looking buys, and it is small enough that indexing those numbers would be indexing
+            a guess. Forest plots scored zero despite printing their effect sizes as text,
+            which points at resolution rather than reasoning. So figures are shown, and their
+            values are not asserted.
+          </p>
+        </section>
+
+        {/* ---------- design decisions ---------- */}
+        <section className="border-b border-white/8 py-14">
+          <SectionHeading>Design decisions</SectionHeading>
+          <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-400">
+            The four questions a reader is most likely to think are oversights.
+          </p>
+          <div className="mt-5 space-y-px overflow-hidden rounded-lg bg-white/8">
+            {DECISIONS.map((d) => (
+              <div key={d.q} className="bg-[#080d16] p-4">
+                <h3 className="text-sm font-medium text-white">{d.q}</h3>
+                <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-slate-400">{d.a}</p>
+              </div>
+            ))}
+          </div>
         </section>
 
         {/* ---------- how to use ---------- */}

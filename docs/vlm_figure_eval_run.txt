@@ -1,0 +1,24 @@
+candidate figures of type ['kaplan-meier', 'forest-plot', 'dose-response', 'roc-curve']: 720
+  with a cited decimal absent from the caption: 375
+  sampling 90  ({'kaplan-meier': 58, 'roc-curve': 15, 'forest-plot': 11, 'dose-response': 6})
+
+querying the VLM twice per figure (vision, then blind) ...
+  completed 90/90
+
+=== recovering the value the AUTHOR read off the plot ===
+  type                n   vision    blind     gap  unreadable
+  kaplan-meier       58      9%       0%     +9%         0%
+  roc-curve          15      0%       0%     +0%         0%
+  forest-plot        11      0%       0%     +0%         0%
+  dose-response       6      0%       0%     +0%         0%
+  ALL                90      6%       0%     +6%         0%
+
+  vision 6% vs blind 0%. The GAP is the only number that means
+  anything: it is what the model gets from looking rather than from knowing
+  where oncology effect sizes usually sit.
+
+  -> Below 10 points, this is not reading. Indexing these values would be
+     indexing a prior, and §3.13 says a wrong number MISROUTES retrieval
+     rather than failing quietly. Do not index VLM numerals.
+
+  wrote C:\Users\jcl34\AppData\Local\oncolens\vlm_figure_eval.json

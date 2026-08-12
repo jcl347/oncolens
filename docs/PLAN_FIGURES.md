@@ -1,264 +1,247 @@
-# Plan: figures, charts and tables
+# Plan: digesting what is inside the image
 
-Everything below is measured on this repo's own corpus or cited to a source. Where a number
-appears, the script that produced it is named.
-
----
-
-## 1. The framing, and why this corpus changes it
-
-Document layout analysis was reframed as object detection: render the page, detect
-`title / paragraph / table / figure / list / caption` instead of COCO classes, keep the
-detector. [PubLayNet](https://arxiv.org/abs/1908.07836) (IBM, 2019) made it practical by
-auto-generating ~360k annotated pages from PMC's structured XML matched against rendered
-PDFs — no human labelling — and its Faster/Mask R-CNN baselines became the default weights,
-later packaged in LayoutParser and the Detectron2 zoo. DocBank (2020) did the same from
-LaTeX.
-
-That stack is the standard one, and it is also **behind the current field**. Since 2022 the
-work moved to models that encode text, position and image *jointly* rather than bolting a
-text extractor onto a box detector:
-
-| approach | note |
-|---|---|
-| LayoutLMv3 / DiT | ~95% mAP on PubLayNet with a Cascade R-CNN head |
-| [DocLayout-YOLO](https://arxiv.org/abs/2410.12628) (2024) | synthetic diverse data + global-to-local perception; the practical speed/accuracy pick |
-| [Docling advanced layout](https://arxiv.org/abs/2509.11720) (2025) | "heron" model, reported +23.5% mAP over its predecessor |
-| [ColPali](https://arxiv.org/abs/2407.01449) | skips detection entirely — 1,024 patch embeddings per page, ColBERT-style MaxSim late interaction |
-
-⚠️ **Generalisation is the open problem, not accuracy.** The same architectures that score
-95–97% mAP on PubLayNet drop to **80–82% on DocLayNet**, a 10–20 point fall, because
-PubLayNet is one document class (PMC biomedical articles). This is §4.1's lesson in the
-literature's own voice: *a benchmark drawn from one document class certifies a rule that
-fails on another.*
-
-### The detection problem this project has is not the one in the patent
-
-A three-model architecture with a rule-based merge exists because the vision model and the
-text models are separate systems needing reconciliation after the fact. **OncoLens has no
-such problem, because it never starts from a PDF.** It ingests JATS XML, where NCBI has
-already published the segmentation.
-
-Measured on the 3,251 cached JATS documents (`scripts/` audit):
-
-| | measured |
-|---|---|
-| documents with ≥1 figure | **97.7%** |
-| total figures | **16,792** (median 5/doc) |
-| figures carrying a caption | **99.0%** |
-| figures carrying an image reference (`<graphic xlink:href>`) | **99.9%** |
-| tables with machine-readable `<table>` markup, **not** a picture | **95.3%** |
-| caption text **currently absent from the index** | **17.4M characters** |
-
-For scale, the body index is ~163M characters over 180,850 passages, so **captions alone
-are ~10.7% more text than the index currently holds**, and 3,861 tables are already
-structured data needing no vision model at all.
-
-Running a page-layout detector here would re-derive from pixels what the publisher already
-states in markup, and do it worse. That is exactly §4.1: PMC's `<ref-list>` is the
-publisher's own statement of where the bibliography starts, and using it turned a matter of
-taste into a labelled task.
-
-**Where detection genuinely is required: panel segmentation.** Roughly **50% of medical
-literature figures are multi-panel**, PMC ships one image per `<fig>`, and a compound figure
-is several experiments in one file. That is a real object-detection task on the *figure*,
-not the page. [Open-PMC-18M](https://arxiv.org/abs/2506.02738) (2025) is the current
-reference: transformer-based subfigure detection trained on 500k programmatically composed
-compound figures, SOTA on ImageCLEF 2016. It also reports that at PMC scale **16.3% of
-compound figures have no caption** and 1.8% have captions under ten words — so panel-level
-text cannot simply be read off.
+Every number below is measured on this repo's corpus (`scripts/audit_figures.py`,
+`scripts/audit_figure_refs.py`, `scripts/size_figure_gap.py`) or cited. Nothing is asserted
+from intuition, because the intuitive ranking of these five approaches turns out to be
+wrong for this corpus in two places.
 
 ---
 
-## 2. The blocking problem: the current benchmark cannot measure any of this
+## 1. What is actually here
 
-The labels are citation contexts. A judgment says **which document** is correct. Adding
-figures to the index does not change which document is correct, so every figure candidate
-would score a delta of approximately zero — and the loop would record a confident negative
-about a subsystem that was never given a way to matter.
+Measured on 3,251 cached JATS documents:
 
-That is §4.13's fault (*a candidate structurally incapable of moving its gate*) at the scale
-of an entire subsystem, and it is the **fourth** instance in this project. Before any model
-is built, the evaluation has to exist.
+| | measured | consequence |
+|---|---|---|
+| documents with ≥1 figure | 97.7% | figures are not a niche case |
+| total figures | **16,792** (median 5/doc) | one-off VLM pass is a batch job, not a service |
+| figures with a caption | 99.0% | captions are near-universal |
+| figures with an image reference | **99.9%** | the picture is fetchable for essentially all |
+| tables that are machine-readable `<table>`, not pictures | **95.3%** | table extraction is already done |
+| caption text **absent from the index** | **17.4M chars** | ≈10.7% more text than the body index holds |
+| median caption length | **934 chars** | these are descriptive paragraphs, not one-liners |
 
-### Labels are available, found rather than written, and there are more of them
+And three numbers that reorder the design space:
 
-JATS marks in-text figure references as `<xref ref-type="fig" rid="F3">`. The sentence
-around one is the **author's own description of what that figure shows**, written by the
-person who made it. Measured on the same 3,251 documents:
+| | measured | what it means |
+|---|---|---|
+| figure queries sharing **<40%** content words with the caption | **49.6%** | **upper** bound on the pixel opportunity |
+| figure-cited **numbers** that already appear in the caption | **81.1%** | strong argument *against* pixels for quantitative lookup |
+| figures with any **plottable chart** component | **27.5%** | chart-to-table is undefined for ~72% |
 
-| | measured |
-|---|---|
-| documents with ≥1 in-text figure reference | **97.5%** |
-| total in-text figure references | **83,462** |
-| median per document | **18** |
-| sentences naming a specific panel (`Fig 3B`) | 2,154 |
-
-**83,462 against the 7,056 citation-context labels that carried this corpus through five
-rounds — 11.8×.** And the shape is right:
-
-> "grade ≥3 infections were significantly higher among BCMA-targeting bispecifics (25%;
-> 95% CI, 0.17-0.32) than with non-BCMA bispecifics (20%; 95% CI, 0.16-0.23; P < .01;
-> **Figure 2**)."
-
-Query = the sentence. Answer = Figure 2. The numbers in it exist **only in the figure**.
-
-⚠️ **Three hazards, each needing a guard before this is trustworthy** — same discipline as
-§4.4:
-
-1. **The sentence is body text and body text is indexed.** A query built from it would
-   retrieve its own source passage and score perfectly on string equality. The passage
-   containing the reference must be excluded, asserted not documented (`assert_source_excluded`
-   already exists and should be reused).
-2. **Caption leakage.** Many such sentences paraphrase the caption. If the caption is
-   indexed, the task collapses to caption matching. This is not a defect to remove — it is
-   the thing to *stratify on* (below).
-3. **Diffuse references.** "(figures 2 and 3)" asserts nothing specific about either; the
-   samples above contain several. Grade down with co-reference exactly as §4.4 does for
-   co-citation, and drop >2.
-
-### The stratification that decides everything
-
-The one design that separates real visual understanding from caption recovery, taken from a
-[controlled evaluation](https://arxiv.org/html/2607.16604) that ran exactly this comparison:
-
-* **caption-answerable** — the answer appears in the caption text;
-* **pixel-only** — the answer requires reading the image (axis values, panel-specific
-  numbers, direction of an effect).
-
-Their measured result, and the reason this matters: on pixel-only questions the **text-only
-baseline scored 0.000** across all four generators, while multimodal scored **0.057–0.114**.
-On caption-answerable questions multimodal scored 0.257–0.371. **Caption-derived benchmarks
-substantially overestimate visual capability**, and without this split we would measure
-caption recovery and report it as chart understanding.
-
-Assign the split automatically and conservatively: if the numeric literals in the reference
-sentence appear in the caption, it is caption-answerable; if not, it is a pixel-only
-candidate. That rule is checkable and does not require a model to arbitrate.
+Figure composition by what the caption says it is: 22.7% imagery (blots, micrographs,
+scans), 14.1% plottable chart alone, 9.8% chart+imagery, 6.5% schematic, 40.5%
+unclassified. **A western blot and an H&E slide have no underlying data table to recover.**
 
 ---
 
-## 3. Staged plan, each stage gated on the previous
+## 2. The five approaches, ranked for *this* corpus
 
-### Stage 0 — index what is already there. No models.
+Ranked by measured value per unit of work here — not by general merit, where the order is
+different.
 
-Add caption text and table markup as retrievable passages with full provenance. Zero new
-dependencies, ~10.7% more indexed text, 3,861 machine-readable tables.
+| # | approach | buys | costs | measured verdict |
+|---|---|---|---|---|
+| **1** | **Table extraction first** | the numbers, exactly, with structure | **≈0** — 95.3% already `<table>` markup | Do immediately. The instinct that "chart RAG is often find-the-table" is right and cheaper here than anywhere |
+| **2** | **Layout-aware routing** | figure/table/body separation | **≈0** — JATS provides it at 99.9% | Already free. Not a substrate to build; a substrate that exists |
+| **3** | **VLM captioning at index time** | works on **all** figure types incl. the 72% charts-to-table cannot touch | one-off pass over 16,792 figures; local GPU | The main build. Pragmatic answer, agreed |
+| **4** | **Chart-to-table** | a checkable table from a chart | model + only **27.5%** applicable | Narrow. Fold into #3 as a sub-case, not a separate track |
+| **5** | **Vision-native (ColPali/ColQwen)** | no OCR, retrieves what text misses | index size; **breaks §1 provenance** | Attribution control only. Cannot ship as primary |
 
-**This is the baseline every later stage must beat**, and skipping it is how a VLM gets
-credited with a gain that plain caption indexing would have delivered. It is the direct
-analogue of §4.5, where BM25 alone beat the shipped hybrid.
+### Where I disagree with the proposed ranking, and why
 
-* Pre-register: `synthesis recall@20` **up ≥ 0.01**; `identifier` and `claim` **NULL** — a
-  caption is topical prose, and claim queries are answered by body sentences.
-* Risk to watch: captions are dense with terms and could crowd out body passages the way
-  reference strings did in §4.1. The regression veto on `claim` is what catches that.
+**"Layout-aware routing is the substrate everything else sits on."** True for a PDF corpus,
+and it is what the patent family needs because it starts from rendered pages. Here NCBI
+already published the segmentation in JATS at 99.9%. Detecting boxes on rendered pages
+would re-derive from pixels what the publisher states in markup — and worse. This is §4.1's
+lesson: PMC's `<ref-list>` is the publisher's own statement of where the bibliography
+starts, and using it turned a matter of taste into a labelled task.
 
-### Stage A — build the figure benchmark (blocking; nothing after this works without it)
+There is an irony worth naming: **PubLayNet's ~360k training annotations were generated by
+matching PMC's JATS against rendered PDFs.** JATS was the ground truth the detector learned
+to approximate. Using the detector here means consuming a lossy re-derivation of the signal
+already on disk.
 
-`scripts/build_figure_labels.py`: mine `<xref ref-type="fig">`, exclude the source passage,
-grade by co-reference, split caption-answerable / pixel-only, hold out a locked test split
-on the same document-level hash as the existing splits.
+**"Chart-to-table … degrades badly on dense scientific figures."** Correct, and worse than
+that framing suggests. Two independent numbers:
 
-* Report `n`, judgments per query, and the **measured** MDE from the paired bootstrap
-  (§4.14) before running any candidate.
-* Report the **achievable ceiling** (§4.16): if the same sentence maps to several figures,
-  the metric is bounded and must be merged first.
+* [CharXiv](https://arxiv.org/abs/2406.18521) (NeurIPS 2024), 2,323 real charts from
+  scientific papers: **GPT-4o 47.1%** on reasoning questions, best open model 29.2%,
+  **human 80.5%**. A mild distribution shift costs up to **34.5%**. ChartQA's homogeneous
+  template charts overstate capability.
+* On this corpus, chart-to-table is **not even defined for 72.5% of figures**.
 
-### Stage 1 — panel segmentation
+So it is not a track. It is a special case inside #3, applied when the caption says the
+figure is plottable.
 
-Only if Stage 0 shows figures are retrieved at all. Detect subfigure panels so a query can
-return *panel 3B* rather than a 6-panel composite. Open-PMC-18M-style detector, or the
-synthetic-composition trick to generate training data from single-panel PMC figures.
+**Where the proposed ranking is right and I would go further:** "table extraction first" is
+the sharpest call in the set. 95.3% of tables here are already structured data, and
+**81.1% of the numbers authors cite against figures are already in the caption.** The
+cheap text path covers most quantitative need before any vision model runs.
 
-* Pre-register: improves **pixel-only** figure retrieval; **NULL on caption-answerable**,
-  because a caption describes the whole figure and panels do not change that.
-* This is the only place a detector earns its cost, and the prediction says exactly where
-  it should show up.
+---
 
-### Stage 2 — VLM labelling of figures ("LLM labelling of charts")
+## 3. Critical evaluation — the part most likely to produce a wrong answer
 
-For each figure or panel, generate structured text offline and index it: chart type,
-axis labels and ranges, series names, extracted data table where the chart is a plottable
-type, and a factual description. Chart→table derendering (DePlot/MatCha lineage,
-ChartGemma) is the higher-value output because a table is *checkable*; free-text captions
-are not.
+### 3.1 The current benchmark cannot measure any of this
 
-⚠️ **Generated text is not evidence, and this is where the project's own rule bites.**
+Judgments say **which document** is relevant. Adding figures does not change which document
+is relevant, so every figure candidate scores ≈0 and the loop records a confident negative
+about a subsystem never given a way to matter. This is the **fourth** instance of §4.13's
+fault (*a candidate structurally incapable of moving its gate*), now at subsystem scale.
+
+### 3.2 Labels exist, and there are more than the corpus has ever had
+
+JATS marks in-text figure references (`<xref ref-type="fig" rid="F3">`), so the sentence
+around one is the **author's own description of what that figure shows**:
+
+* **83,462** in-text references, 97.5% of documents, median 18 each
+* **64,371** resolve to exactly one figure after dropping diffuse references
+* against the **7,056** citation contexts that carried this corpus through five rounds
+
+### 3.3 ⚠️ The limitation that invalidates the obvious reading
+
+**In-text references are, by construction, the parts of a figure the author DID write down
+in prose.** The sentence "prevalence was 56% (Figure 1)" contains the answer. So these
+labels measure **retrieval** — can the system surface Figure 1 — and they **cannot** measure
+pixel-only question answering, because the answer is in the query's own source sentence.
+
+Anyone building a "figure QA" benchmark from these and reporting high accuracy would be
+measuring text copying. Two guards:
+
+1. **Exclude the source passage**, asserted not documented — reuse `assert_source_excluded`.
+   Without it a query retrieves its own sentence and scores perfectly on string equality.
+2. **Do not claim visual QA from this instrument.** It supports retrieval claims only.
+
+For genuine pixel-only evaluation a second instrument is needed, and the honest version is
+small and hand-checked rather than large and generated — see 3.5.
+
+### 3.4 ⚠️ Low caption overlap does NOT mean "needs pixels"
+
+The 49.6% figure is an **upper** bound and will be over-read. Measured example at 0.06
+overlap:
+
+> query: *"recent basic researches indicated that radiotherapy has significant synergism
+> effect with ICI (hypothetical mechanism summarised in figure 1)"*
+> caption: *"Hypothetical mechanism of tumour regression induced by radiotherapy combined
+> with PD-1 blockade."*
+
+The caption is **adequate**; the overlap is low because the sentence discusses synergism and
+the caption names the mechanism. And the figure is a **schematic** — a VLM reading it
+recovers nothing a caption does not already say. Low overlap conflates three cases:
+
+| case | pixels help? |
+|---|---|
+| value is in the plot, not the caption (`weight, 0.0075`) | **yes** |
+| topical mismatch between sentence and caption | no — better text retrieval helps |
+| schematic with no extractable data | no |
+
+The defensible estimate of pixel-unique value is the **18.9%** of figure-cited numbers
+absent from the caption, not the 49.6%. Stratify on this before running anything.
+
+### 3.5 Stratification, and the number that makes it necessary
+
+Split every figure query into **caption-answerable** and **pixel-only**, assigned by a
+checkable rule (do the sentence's numeric literals appear in the caption?) rather than by a
+model. The reason is measured: in a
+[controlled evaluation](https://arxiv.org/html/2607.16604) using exactly this design, the
+text-only baseline scored **0.000** on pixel-only questions and multimodal scored
+**0.057–0.114**, while caption-answerable questions scored 0.257–0.371. **Caption-derived
+benchmarks substantially overestimate visual capability.** Without the split, caption
+indexing gains get reported as chart understanding.
+
+### 3.6 Generated text cannot be both the system and the judge
+
 §4.4 forbids grading our own homework, and
-[CHOCOLATE](https://aclanthology.org/2024.findings-acl.41.pdf) documents that LVLM chart
-captions contain systematic factual errors. Therefore:
+[CHOCOLATE](https://aclanthology.org/2024.findings-acl.41.pdf) documents systematic factual
+errors in LVLM chart captions. Therefore:
 
-* the generated description is **retrieval bait only** — never shown to the user as a
-  finding, and never a source for a judgment;
-* what the user sees is the **image and the real caption**, at their real provenance;
-* the generator must not be from the same family as any model used to judge relevance.
+* VLM output is **retrieval bait only** — it may influence ranking and must never be
+  rendered to a user as a finding;
+* the user always sees the **real caption and the real image**, at real provenance;
+* the description generator must not share a family with any model used to judge relevance;
+* a **caption-only control** runs alongside every VLM candidate, so a gain attributable to
+  simply having more text in the index is not credited to vision. This is the role
+  `openai_768` played for MedCPT and `rerank_minilm_cross` played for the cross-encoder —
+  both of which **reversed the conclusion**.
 
-Offline cost is the deciding factor: at 16,792 figures this is a one-off batch, not a
-request-path cost. Budget it against the measured alternative — olmOCR reports
-<$190/million pages, ~1/32 of GPT-4o API pricing, so a local VLM is the default.
+### 3.7 Five approaches is a multiple-comparisons problem
 
-### Stage 3 — visual retrieval arm (ColPali), as a *control*, not a proposal
+Testing all five against several strata is exactly the setup §4.10 was written about. One
+pre-registered gate metric per stratum, **Holm across candidates**, secondaries as
+uncorrected regression vetoes. And per §4.16, compute the **achievable ceiling** first: if
+one sentence maps to several figures, merge before measuring, or the metric is bounded below
+1.0 and every candidate is judged against an unreachable target.
 
-ColPali retrieves over page-image patches with no OCR at all. Run it to answer one
-question: **how much of Stage 2's gain is the VLM's description versus simply having pixels
-in the index?** Same role `openai_768` played for MedCPT and `rerank_minilm_cross` played
-for the cross-encoder — both of which changed the conclusion.
+### 3.8 The honest prior
 
-⚠️ **ColPali conflicts with §1 and cannot ship as the primary path.** It returns a *page*,
-and the one rule is returning the passage with `(doc_id, section, start_char, end_char)`. A
-patch grid has no character offsets. It is legitimate as an extra fusion arm or a
-diagnostic; it is a regression as a replacement.
+Given 81.1% of cited numbers already in captions, 27.5% of figures plottable, and a best
+reported pixel-only accuracy of 0.114 elsewhere — **expect a small effect on a stratum that
+did not previously exist, not a headline.** Registered now so a null result reads as
+prediction confirmed rather than disappointment.
 
 ---
 
 ## 4. Provenance: the constraint that shapes the schema
 
-§1 says a retrieval change that improves ranking and loses provenance is a regression. A
-figure has no character offsets, so the model must extend rather than bend:
+§1 says a change that improves ranking and loses provenance is a regression. A figure has no
+character offsets, so extend rather than bend:
 
 ```
-figure_id       PMC<id>:fig:F3          stable, from JATS
-panel_bbox      x,y,w,h | null          null until Stage 1
-caption_span    (doc_id, start, end)    REAL offsets into the caption text
-image_uri       blob/PMC<id>/<graphic>  the actual picture the user checks
-derived_text    VLM output | null       marked machine-generated, never quoted as finding
+figure_id      PMC<id>:fig:F3         stable, from JATS
+panel_bbox     x,y,w,h | null         null until panel segmentation exists
+caption_span   (doc_id, start, end)   REAL offsets into caption text
+image_uri      blob/PMC<id>/<file>    the picture the reader actually checks
+derived_text   VLM output | null      machine-generated; never quoted as a finding
+derived_table  chart-to-table | null  only for the 27.5%; marked approximate
 ```
 
-The rule to enforce in the response contract: **anything shown as a finding must resolve to
-either real character offsets or a real image the reader can look at.** `derived_text` is
-neither, so it may influence ranking and must never be rendered as evidence. This wants a
-contract test on day one — §4.11 and §4.15 are both the same failure of a served shape
+**The contract rule:** anything rendered as a finding must resolve to either real character
+offsets or a real image the reader can look at. `derived_text` is neither. This needs a
+contract test on day one — §4.11 and §4.15 are the same failure twice, a served shape
 drifting from what the client believes.
 
 ---
 
-## 5. What I predict will not work, written down first
+## 5. Order of work
 
-* **Knowledge-graph augmentation.** Directly measured in the controlled evaluation above:
-  **+0.028 on text questions, −0.017 on multi-hop, 0.000 on figure questions.** The authors
-  attribute it to unrestricted entity matching importing facts from unrelated documents,
-  while provenance-restricted matching merely restates retrieved passages. If "detection
-  over graphs" is ever read as *knowledge* graphs rather than charts, this is the evidence
-  against starting there.
-* **Page-layout detection on this corpus.** JATS already provides it at 99.9% for figures.
-* **Big absolute gains on pixel-only questions.** The best multimodal number in the
-  controlled evaluation was **0.114**. Expect a small effect on a stratum that did not
-  previously exist, not a headline.
-* **A stronger generator rescuing weak retrieval.** Measured there too: GPT-4o moved
-  accuracy 0.086 → 0.143 while CLIP Recall@1 was 0.229. Consistent with this project's own
-  finding that ranking, not generation, is the binding constraint.
+| stage | what | gate to proceed |
+|---|---|---|
+| **A** | Figure labels from `<xref>`; exclude source passage; caption-answerable / pixel-only split; report n, judgments/query, measured MDE, achievable ceiling | labels exist and the ceiling is 1.0 |
+| **0** | Index caption text + `<table>` markup. **No models.** | `synthesis recall@20` up ≥0.01; `claim` and `identifier` NULL |
+| **1** | VLM description at index time over all 16,792 figures; chart-to-table for the 27.5% that are plottable | beats Stage 0 **with the caption-only control also run** |
+| **2** | Panel segmentation (~50% of medical figures are multi-panel; PMC ships one image per `<fig>`) | pixel-only queries exist and Stage 1 fails on them specifically |
+| **3** | ColPali/ColQwen as an attribution control | — never ships as primary; §1 |
+
+Stages 1 and 2 are deliberately inverted against intuition. Panel segmentation is the more
+interesting engineering and the less certain payoff; whole-figure descriptions are testable
+first, and if those do not help, panels will not either.
 
 ---
 
-## 6. Order of work
+## 6. Registered as predicted to fail
 
-1. **Stage A labels** (blocking — without it nothing downstream is measurable)
-2. **Stage 0 caption + table indexing** (no models, largest certain gain, the baseline)
-3. Stage 2 VLM labelling on figures already shown to be retrieved
-4. Stage 1 panel segmentation, gated on pixel-only queries existing and failing
-5. Stage 3 ColPali as an attribution control
+* **Knowledge-graph augmentation.** Measured elsewhere at **+0.028 / −0.017 / 0.000** on
+  text / multi-hop / figure questions, attributed to unrestricted entity matching importing
+  unrelated facts while provenance-restricted matching merely restates retrieved passages.
+* **Page-layout detection on this corpus.** JATS supplies it at 99.9%.
+* **Chart-to-table as a primary track.** Undefined for 72.5% of these figures.
+* **Large absolute pixel-only gains.** Best reported is 0.114; CharXiv puts GPT-4o at 47.1%
+  against 80.5% human on real scientific charts.
+* **A stronger generator rescuing weak retrieval.** Measured there at 0.086 → 0.143 while
+  retrieval Recall@1 was 0.229 — consistent with this project's own finding
+  (§4.18) that ranking, not generation, is the binding constraint.
 
-Stages 1 and 2 are deliberately out of intuitive order. Panel segmentation is the more
-interesting engineering and the less certain payoff; the VLM description is testable on
-whole figures first, and if whole-figure descriptions do not help, panels will not either.
+---
+
+## Sources
+
+[PubLayNet](https://arxiv.org/abs/1908.07836) ·
+[DocLayout-YOLO](https://arxiv.org/abs/2410.12628) ·
+[Docling advanced layout](https://arxiv.org/abs/2509.11720) ·
+[ColPali](https://arxiv.org/abs/2407.01449) ·
+[CharXiv](https://arxiv.org/abs/2406.18521) ·
+[Open-PMC-18M compound figures](https://arxiv.org/abs/2506.02738) ·
+[controlled multimodal/graph-RAG evaluation](https://arxiv.org/html/2607.16604) ·
+[CHOCOLATE chart-caption errors](https://aclanthology.org/2024.findings-acl.41.pdf) ·
+[olmOCR](https://arxiv.org/pdf/2502.18443)

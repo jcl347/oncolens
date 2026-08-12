@@ -37,6 +37,17 @@ type Figure = {
   figure_id: string; label: string; caption: string; image_uri: string;
   figure_type: string | null; figure_type_source: string | null;
 };
+/**
+ * A table as PARSED ROWS. 95.3% of this corpus's tables carry machine-readable `<table>`
+ * markup, so the data is already structured — no OCR, no vision model, no derendering.
+ * Rows arrive as arrays of strings and are rendered into a real `<table>`; publisher HTML
+ * is never injected, which is why this is a grid and not a `dangerouslySetInnerHTML`.
+ */
+type Table = {
+  table_id: string; label: string; caption: string;
+  rows: string[][]; n_rows: number; n_cols: number;
+  truncated: boolean; foot: string;
+};
 type Paper = {
   doc_id: string; title: string; year: number | null; pmid: string; pmcid: string | null;
   journal: string; license_code: string | null; full_text_chars: number | null;
@@ -45,6 +56,7 @@ type Paper = {
   grants: { grant_id?: string; agency?: string }[];
   n_passages: number; passages: Passage[]; highlight: string;
   n_figures?: number; figures?: Figure[];
+  n_tables?: number; tables?: Table[];
 };
 
 export default function PaperPage() {
@@ -180,6 +192,7 @@ export default function PaperPage() {
                 )}
                 <span>{paper.n_passages} passages</span>
                 {!!paper.n_figures && <span>{paper.n_figures} figures</span>}
+                {!!paper.n_tables && <span>{paper.n_tables} tables</span>}
               </p>
 
               {paper.mesh_major.length > 0 && (
@@ -270,6 +283,82 @@ export default function PaperPage() {
                   <span className="text-slate-500">not part of retrieval</span> — their
                   effect on ranking has not been measured yet.
                 </p>
+              </section>
+            )}
+
+            {/* ---------- tables ----------
+                Rendered from parsed rows, so the numbers are the publisher's own
+                structured data rather than a picture of them or an OCR guess. */}
+            {!!paper.tables?.length && (
+              <section className="mt-7">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h2 className="text-xs uppercase tracking-[0.16em] text-teal/70">Tables</h2>
+                  <span className="font-mono text-[10px] text-slate-600">
+                    structured data from JATS, not OCR
+                  </span>
+                </div>
+                <div className="mt-3 space-y-5">
+                  {paper.tables.map((t) => (
+                    <figure key={t.table_id} id={`tbl-${t.table_id}`}
+                            className="overflow-hidden rounded-lg border border-white/10 bg-[#080d16]">
+                      <figcaption className="border-b border-white/8 p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {t.label && (
+                            <span className="font-mono text-[11px] font-medium text-teal">
+                              {t.label}
+                            </span>
+                          )}
+                          <span className="font-mono text-[10px] text-slate-600">
+                            {t.n_rows}×{t.n_cols}
+                          </span>
+                        </div>
+                        {t.caption && (
+                          <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+                            {t.caption}
+                          </p>
+                        )}
+                      </figcaption>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-[11px]">
+                          <tbody>
+                            {t.rows.map((row, ri) => (
+                              <tr key={ri}
+                                  className={ri === 0
+                                    ? "border-b border-white/12 bg-white/[0.03]"
+                                    : "border-b border-white/5"}>
+                                {row.map((cell, ci) => (
+                                  <td key={ci}
+                                      className={`px-2.5 py-1.5 align-top ${
+                                        ri === 0
+                                          ? "font-medium text-slate-300"
+                                          : "text-slate-400"}`}>
+                                    {cell}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {(t.truncated || t.foot) && (
+                        <div className="border-t border-white/8 p-2.5">
+                          {t.truncated && (
+                            /* Say what is not shown. A truncated table presented as whole
+                               is the "not reported" over-claim in a new place. */
+                            <p className="text-[10px] text-amber-300/70">
+                              showing the first {t.rows.length} of {t.n_rows} rows
+                            </p>
+                          )}
+                          {t.foot && (
+                            <p className="mt-1 text-[10px] leading-relaxed text-slate-600">
+                              {t.foot}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </figure>
+                  ))}
+                </div>
               </section>
             )}
 

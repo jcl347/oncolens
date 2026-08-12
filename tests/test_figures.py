@@ -146,6 +146,61 @@ class TestPaperResponseShape:
         assert "inferred" in page.lower()
 
 
+class TestTables:
+    """Tables ship as PARSED ROWS, never as publisher markup.
+
+    95.3% of this corpus's tables carry a machine-readable `<table>`, so the numbers are
+    already structured — no OCR, no derendering, no vision model. The one hazard is
+    rendering: injecting publisher HTML into the page would be an XSS surface for zero
+    benefit, so the store holds a JSON grid and the page builds a real `<table>` from it.
+    """
+
+    def test_rows_are_stored_as_json_not_markup(self):
+        src = (REPO / "scripts" / "ingest_figures.py").read_text(encoding="utf-8")
+        assert re.search(r"table_rows\s+JSONB", src), "table_rows must be a JSONB column"
+
+    def test_page_never_injects_publisher_markup(self):
+        # Match the JSX ATTRIBUTE, not the word. The first version of this test failed on
+        # the doc comment above the Table type, which explains why the property holds —
+        # a test literal enough to be tripped by its own documentation.
+        page = (REPO / "app" / "paper" / "page.tsx").read_text(encoding="utf-8")
+        assert not re.search(r"dangerouslySetInnerHTML\s*=", page)
+
+    def test_only_machine_readable_tables_are_ingested(self):
+        """A `<table-wrap>` that is only an image has no grid to show; pretending
+        otherwise puts an empty table on the page."""
+        src = (REPO / "scripts" / "ingest_figures.py").read_text(encoding="utf-8")
+        block = src.split("def tables_from_jats")[1].split("def resolve_image")[0]
+        assert 'tbl = tw.find(".//table")' in block
+        assert "if tbl is None:" in block and "continue" in block
+
+    def test_truncation_is_disclosed(self):
+        """Showing 40 rows of a 300-row table without saying so is the 'not reported'
+        over-claim in a new place."""
+        src = (REPO / "scripts" / "ingest_figures.py").read_text(encoding="utf-8")
+        assert '"truncated"' in src
+        page = (REPO / "app" / "paper" / "page.tsx").read_text(encoding="utf-8")
+        assert "t.truncated" in page and "of {t.n_rows} rows" in page
+
+    def test_footer_is_carried(self):
+        """The abbreviation key and significance markers are where a table's units live."""
+        src = (REPO / "scripts" / "ingest_figures.py").read_text(encoding="utf-8")
+        assert "table-wrap-foot" in src
+
+    def test_tables_are_excluded_from_retrieval(self):
+        """Same guarantee as figures: the predicate is kind='passage', so 'table' rows are
+        outside both arms by construction."""
+        assert neon_store._RETRIEVABLE.strip() == "c.kind = 'passage'"
+
+    def test_api_emits_what_the_page_reads(self):
+        src = (REPO / "src" / "oncolens" / "serve" / "live_query.py").read_text(
+            encoding="utf-8")
+        assert '"tables": tables' in src and '"n_tables"' in src
+        block = src.split("kind = 'table'")[1][:1200]
+        for field in ("table_id", "label", "caption", "rows", "n_rows", "truncated", "foot"):
+            assert field in block, f"the page reads {field!r} and nothing emits it"
+
+
 class TestIngestClassifier:
     """The caption-first type cascade. Captions are precise when they fire; silence is
     reported as unknown rather than guessed."""

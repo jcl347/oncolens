@@ -434,6 +434,33 @@ def get_document(index: LiveIndex, doc_id: str, *, highlight: str = "") -> dict 
             for r in cur.fetchall() if r[3]
         ]
 
+        # Tables are shipped as PARSED ROWS, not markup. 95.3% of this corpus's tables
+        # carry a machine-readable <table>, so the numbers are already structured and the
+        # page can render a real grid without ever injecting publisher HTML.
+        cur.execute(
+            """SELECT chunk_id, figure_label, text, table_rows
+               FROM chunks WHERE doc_id = %s AND kind = 'table'
+               ORDER BY chunk_id""", (doc_id,))
+        tables = []
+        for r in cur.fetchall():
+            data = r[3] if isinstance(r[3], dict) else {}
+            rows = data.get("rows") or []
+            if not rows:
+                continue
+            tables.append({
+                "table_id": r[0].split("#tbl:")[-1],
+                "label": r[1] or "",
+                "caption": r[2],
+                "rows": rows,
+                # The real size, so a truncated table says so rather than quietly
+                # presenting 40 rows as the whole thing.
+                "n_rows": data.get("n_rows", len(rows)),
+                "n_cols": data.get("n_cols", 0),
+                "truncated": bool(data.get("truncated")),
+                # Abbreviation key and significance markers: a table's units live here.
+                "foot": data.get("foot") or "",
+            })
+
     meta = meta if isinstance(meta, dict) else {}
     mesh = [m for m in (meta.get("mesh") or []) if isinstance(m, dict)]
     return {
@@ -456,6 +483,8 @@ def get_document(index: LiveIndex, doc_id: str, *, highlight: str = "") -> dict 
         "passages": passages,
         "n_figures": len(figures),
         "figures": figures,
+        "n_tables": len(tables),
+        "tables": tables,
         "highlight": highlight,
         "source": "neon",
     }

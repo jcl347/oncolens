@@ -629,18 +629,68 @@ That converts an unreliable model into a **high-precision, low-recall** extracto
 the right trade when the failure mode is poisoning an index. It also yields a per-figure
 quality score that can be reported rather than assumed.
 
-### 3. Domain-specific extraction: Kaplan–Meier reconstruction
+### 3. ~~Domain-specific extraction: Kaplan–Meier reconstruction~~ — **demoted, see below**
 
-**1,666 figures, 10.1%**, and the highest value density in the corpus — a KM curve yields
-median OS, survival at *t*, and with the at-risk table a full IPD reconstruction, which is
-exactly what oncology queries ask for. The methodology is established (Guyot's iterative
-algorithm) and now automated end-to-end by
-[KM-GPT](https://arxiv.org/html/2509.18141) (2025).
+**1,666 figures, 10.1%**, and superficially the highest value density in the corpus: a KM
+curve yields median OS, survival at *t*, and with the at-risk table a full IPD
+reconstruction — exactly the quantities oncology queries ask for.
 
-⚠️ Narrow, and real engineering for 10% of figures. Justified only because the extracted
-quantities are the ones users actually search for, and because unlike a generic VLM
-description the output is **structured, checkable against the caption's stated median, and
-directly answerable**. Rank it above generic VLM work on value density, below OCR on effort.
+⚠️ **An earlier version of this section ranked it third and called the automation
+"established". That was wrong on two counts, and the second one demotes it outright.**
+
+**Error 1 — I conflated the algorithm with its automation.** Guyot's iterative method (2012)
+*is* established: validated, widely used in HTA and NICE submissions. But it takes
+**digitised coordinates as input**, and digitisation is the hard part — historically manual
+(WebPlotDigitizer, DigitizeIt, ScanIt). The paper I cited for end-to-end automation,
+[KM-GPT](https://arxiv.org/html/2509.18141), is a **September 2025 preprint with no
+independent validation**. I attached "established" to the automation because the underlying
+mathematics is established. Citing a recent preprint as settled is the §4.14 error —
+choosing by reputation and recency rather than by evidence.
+
+**Error 2 — and this is the disqualifying one: reconstruction is the wrong *shape* for a
+retrieval index.** Even granting a perfect implementation, ask what would be written into
+`indexed_text`. A derived number such as `median OS 18.9 months`. Then §3.13's rule applies
+and the argument closes on itself:
+
+* if the derived value **cross-checks against a stated value**, the stated value was already
+  in the caption or body — and it is already indexed, so nothing was gained;
+* if it **does not cross-check**, it is unverified inference and must not enter the index.
+
+**Either it is redundant or it is inadmissible.** IPD reconstruction is a *meta-analysis*
+capability — it produces a dataset for re-analysis. RAG needs retrievable text and returnable
+evidence. Those are different products.
+
+And the failure mode is the worst available: **a slightly-wrong reconstruction produces a
+survival curve that looks entirely correct** and yields a wrong median or HR with no visible
+symptom. That is §3.13 escalated from a wrong number to a wrong *dataset* wearing the
+costume of data.
+
+**Revised verdict:** not part of the RAG build. Worth keeping in mind as a separate product
+capability if OncoLens ever moves toward evidence synthesis, where a reconstructed dataset is
+the deliverable and can be inspected as such. What *is* worth taking from this section is
+narrower and safe: **OCR the at-risk table under a KM curve** — it is printed text, so
+transcription rather than inference, and it carries the per-arm n that captions frequently
+omit.
+
+### ⚠️ A source-quality note that applies to this whole document
+
+The KM-GPT error is systemic, not local. Several works cited here are recent arXiv preprints
+without independent replication, and they are not the same kind of evidence as peer-reviewed
+and replicated results. Read them accordingly:
+
+| cited as | status |
+|---|---|
+| CharXiv (47.1% / 80.5%) | **NeurIPS 2024**, peer-reviewed |
+| CHOCOLATE chart-caption errors | **ACL Findings 2024**, peer-reviewed |
+| ColPali | published, widely replicated |
+| PubLayNet, Guyot iKM | long-established, heavily used |
+| Open-PMC-18M, Docling "heron", the controlled multimodal/graph-RAG evaluation | **recent preprints** — directional evidence, not settled findings |
+| KM-GPT | **recent preprint, no independent validation** |
+
+The numbers this plan leans on hardest — the 0.000 text-only baseline on pixel-only
+questions, and 0.057–0.114 for multimodal — come from a **preprint**. They are load-bearing
+for the "expect a small effect" prediction, so that prediction should be held with
+correspondingly less confidence than the numbers measured on this corpus.
 
 ### 4. Panel segmentation, supervised by the caption
 

@@ -453,11 +453,12 @@ because CLIP is weak at OCR, but because the resolution destroys the text before
 sees it. This is the mechanism behind "matches gist, not text-in-image", and it means
 BiomedCLIP is a *topical figure finder*, full stop.
 
-⚠️ **Licence: "Any deployed use case of the model — commercial or otherwise — is currently
-out of scope."** The model card restricts it to research and reproducibility. This is §3.1's
-lesson again in a new place: **if OncoLens is ever commercialised, BiomedCLIP cannot ship**,
-exactly as the NC-licensed corpus content cannot. Fine for measuring whether the idea works;
-not a production dependency. Decide that before building on it.
+**Licence — resolved, not a blocker.** The model card says "any deployed use case … is
+currently out of scope", restricting it to research and reproducibility. **OncoLens is not
+being commercialised** (confirmed 2026-08-11), so this is the same position as the
+NC-licensed content already in the index under §3.1's `research` policy. It stays recorded
+because it is a constraint that would bind if that ever changed, not because it blocks
+anything now.
 
 ### Storage: one nullable column, nothing else moves
 
@@ -518,10 +519,43 @@ The question is **marginal value over captions**, never "BiomedCLIP vs captions"
 * pre-registered prediction: **figure `success@5` up ≥ 0.02; all text strata NULL.** A
   non-null text stratum means Pattern R is not behaving additively and is a bug, not a win.
 
-⚠️ **Registered honestly: I expect this to be small or null.** Captions are already indexed
-at ~100% token coverage and already carry the gist; BiomedCLIP at 224×224 also carries only
-the gist. Two encoders of the same information is the `dual_dense` situation (§4.14), which
-was registered as predicted to fail for precisely this reason.
+### The case against, with the licence objection removed
+
+BiomedCLIP is **not the wrong model** — for an image-retrieval arm over this corpus it is
+the right one, beating general CLIP on domain match and ColPali on cost, infra fit and
+provenance. The case against is not about the model. It is that **its value is squeezed from
+both ends**, and three of the four arguments are structural rather than empirical.
+
+**1. Its headline capability is the one thing JATS already gives exactly.** BiomedCLIP's
+reported strength — 77% top-5, >90% top-5 against 700k candidates — is *text→image
+retrieval*: given a caption, find its image. That is the task it was trained on, on PMC
+figure-caption pairs. **This corpus does not have to infer that mapping.** `<fig>` contains
+both `<caption>` and `<graphic xlink:href>`; the linkage is stated by the publisher, at
+99.9%, exactly and for free. The benchmark BiomedCLIP wins is the benchmark we do not need
+to run. This is the §4.1 / PubLayNet pattern for the third time: a model that learned to
+approximate a signal we already hold as markup.
+
+**2. Redundant with captions from above.** Captions are indexed at ~100% token coverage and
+already sit in both the BM25 and dense arms. BiomedCLIP at 224×224 contributes *gist*.
+Captions **are** gist — median 934 characters of authored description. Two encoders of the
+same information is the `dual_dense` situation (§4.14), registered as predicted to fail for
+precisely this reason.
+
+**3. Cut off from the pixel gap from below.** The one thing captions genuinely do not cover
+is unstated values — points on a curve, per-arm n, axis ranges. At 224×224 a six-panel
+figure gives each panel ~75×75 pixels, so BiomedCLIP cannot read any of it. It is excluded
+by construction from the only territory captions leave open.
+
+**4. Suggestive, not decisive: weak categorical retrieval.** An out-of-distribution study
+reports BiomedCLIP class-wise P@1 of **0.240** against sample-wise 0.594 — much better at
+"find this specific image" than "find images of category X". Queries here are categorical
+("survival curves for osimertinib"), which is the weaker mode. ⚠️ That study is on
+**radiology** images, not figures, so treat it as a reason to measure rather than as a
+finding that transfers.
+
+**What would change the verdict:** panel segmentation first (~6× effective resolution per
+panel, attacking objection 3), or a corpus where caption↔image linkage must be inferred
+(attacking objection 1). Neither is true today.
 
 **The one condition under which I would expect it to win** — and this reorders the stages —
 is *after* panel segmentation. Cropping a six-panel figure into six 224×224 inputs is ~6×

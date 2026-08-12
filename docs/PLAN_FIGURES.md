@@ -182,6 +182,112 @@ prediction confirmed rather than disappointment.
 
 ---
 
+## 3.9 Architecture: how a figure becomes retrievable
+
+### The schema already separates "what is indexed" from "what is shown"
+
+`chunks` carries **both** `text` and `indexed_text`. `tsv` and `embedding` are built from
+`indexed_text`; the UI renders `text`. The existing comment states the intent:
+
+> *indexed_text may include the contextual-retrieval prefix; text stays verbatim so the
+> passage shown to a user is always the real source text.*
+
+That is exactly §3.6's rule, already enforced at the storage layer. A figure chunk uses it:
+
+| column | figure chunk holds | shown to user? |
+|---|---|---|
+| `text` | **the real caption, verbatim** | **yes**, at real offsets |
+| `indexed_text` | caption + label + the sentences that cite it + VLM description + derived table | **never** |
+
+So the VLM description influences ranking and is structurally incapable of being rendered
+as a finding. No new enforcement code — the wrong behaviour requires changing the schema.
+
+### One index, not two — and the reason is attribution, not simplicity
+
+A figure is a row in `chunks`, not a separate `figures` index. Three nullable columns:
+
+```sql
+ALTER TABLE chunks ADD COLUMN kind       TEXT NOT NULL DEFAULT 'passage';  -- 'passage'|'figure'|'table'
+ALTER TABLE chunks ADD COLUMN figure_id  TEXT;        -- 'PMC10558589:fig1', stable, from JATS
+ALTER TABLE chunks ADD COLUMN image_uri  TEXT;        -- blob path to the actual picture
+CREATE INDEX IF NOT EXISTS chunks_kind_idx ON chunks (kind) WHERE kind <> 'passage';
+```
+
+⚠️ **A separate figure index would add a third retrieval arm, and this project has already
+been burned by that.** §4.14 records that `tri_fusion`'s gain is confounded with a
+lexical:dense ratio change, because three equal-weight arms move the ratio from 1:1 to 1:2 —
+and the controls that would attribute it (`tri_fusion_balanced`, `dual_dense`) still have
+not run. Adding a figure arm would re-open exactly that question and make the figure result
+uninterpretable. **Same table, same two arms, same RRF, same weights** means a measured
+change is attributable to the content and nothing else.
+
+Cost: 16,792 figure rows on 180,850 passages, **+9.3%** index size.
+
+### Retrieval, and the aggregation problem that actually matters
+
+`aggregate_chunks_to_docs(..., strategy="max")` collapses passages to **documents**. If a
+figure chunk wins, the current pipeline returns the *document* — the figure disappears.
+Pulling back charts needs two paths, and the first must not disturb the measured baseline:
+
+**Path A — figures as evidence on a normal search (default).** Document ranking is computed
+exactly as today. Then, for each returned document, the figure chunks that survived fusion
+are attached to it. Purely additive: `aggregate_chunks_to_docs` is unchanged, so every
+existing metric is unchanged, and the regression veto still means what it meant.
+
+```
+result = { doc_id, title, passages: [...],           # unchanged
+           figures: [ {figure_id, caption, image_uri, matched_by, rank} ] }   # new
+```
+
+**Path B — `kind=figure`, figure-first retrieval.** Skip document aggregation entirely and
+rank figures directly. This is the "show me the survival curves for osimertinib" query, and
+it is the mode the Stage-A labels actually evaluate, because those labels are
+(sentence → figure) pairs.
+
+```sql
+-- both CTEs already filter on nothing; add the predicate, keep RRF identical
+WHERE c.tsv @@ plainto_tsquery('english', $1) AND ($7::text IS NULL OR c.kind = $7)
+```
+
+⚠️ Reuse `_cap_per_document` here. A single review with 12 panels would otherwise fill the
+whole result list — the §4.4 popularity-bias problem in a new costume.
+
+### Serving
+
+`live_query._shape` must emit `figure_id`, `caption`, `image_uri`, `matched_by` and the
+caption's real offsets. §4.15 is the precedent: `best_clause` existed on one side of that
+interface for months and was never sent, so every production query silently lost its
+highlight.
+
+**Write the contract test first**, with a **non-zero** `start_char` in the fixture, so a
+missing `base_offset` fails loudly instead of printing a character range that does not exist
+in the article. `tests/test_search_contract.py` already does this for passages and is the
+template.
+
+⚠️ **The gibberish problem returns, harder.** §4.15 found the dense CTE has no distance
+threshold, so `zzqqxx flurbotanix` returned five confident ferroptosis papers. With images
+this is worse: a returned *picture* reads as much stronger evidence than a returned
+paragraph. The `matched_by` labelling (*terms* / *terms + meaning* / *meaning only*) must
+carry through to figures, and a figure retrieved on `meaning only` with no lexical hit
+should be visibly marked as such.
+
+### Ingestion
+
+`sources/jats.py` already parses the JATS and is where `<ref-list>` alignment happens, so
+figures come out of the same pass:
+
+1. `<fig>` → `figure_id`, `<label>`, `<caption>` text, `<graphic xlink:href>`
+2. resolve the href against the PMC package, upload the image via `scripts/blob_bridge.mjs`
+   (§2: the Blob store is private and rejects every REST upload, so the Node SDK bridge is
+   the only path)
+3. collect `<xref ref-type="fig" rid=…>` sentences into `indexed_text`
+4. `<table-wrap>` with a real `<table>` → serialise the grid to text; **95.3% of tables need
+   no vision model at all**
+5. Stage 1 only: append the VLM description to `indexed_text`
+
+`upsert_chunks(replace=True)` already deletes a document's chunks before inserting (§4.1),
+so re-ingestion will not leave stale figure rows behind.
+
 ## 4. Provenance: the constraint that shapes the schema
 
 §1 says a change that improves ranking and loses provenance is a regression. A figure has no

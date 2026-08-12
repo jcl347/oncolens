@@ -439,6 +439,96 @@ Since **caption text is already indexed and already carries the gist**, BiomedCL
 marginal value over the existing text arm is genuinely uncertain — it may be near zero. That
 is the hypothesis to register, not assume.
 
+## 3.11 Integrating BiomedCLIP **additively** — captions keep everything they have
+
+Constraint: nothing the caption currently does may be replaced or degraded. That rules out
+the two integration patterns that would have caused trouble, and leaves a clean one.
+
+### Two facts from the model card that shape this before any code
+
+⚠️ **`context_length = 256`, image input `224 × 224`, ViT-B/16.** A six-panel figure
+downsampled to 224×224 gives each panel roughly **75×75 pixels**. No axis label, no legend,
+no p-value survives that. So BiomedCLIP **structurally cannot read values off a plot** — not
+because CLIP is weak at OCR, but because the resolution destroys the text before the encoder
+sees it. This is the mechanism behind "matches gist, not text-in-image", and it means
+BiomedCLIP is a *topical figure finder*, full stop.
+
+⚠️ **Licence: "Any deployed use case of the model — commercial or otherwise — is currently
+out of scope."** The model card restricts it to research and reproducibility. This is §3.1's
+lesson again in a new place: **if OncoLens is ever commercialised, BiomedCLIP cannot ship**,
+exactly as the NC-licensed corpus content cannot. Fine for measuring whether the idea works;
+not a production dependency. Decide that before building on it.
+
+### Storage: one nullable column, nothing else moves
+
+```sql
+ALTER TABLE chunks ADD COLUMN image_embedding VECTOR(:img_dim);   -- NULL for all 180,850 passages
+CREATE INDEX chunks_img_idx ON chunks USING hnsw (image_embedding vector_cosine_ops)
+    WHERE kind = 'figure';        -- partial: indexes only the 16,792 rows that have one
+```
+
+`:img_dim` is resolved from the model config at ingest, not hard-coded — §4.6's rule that an
+embedding-space mismatch raises no error and returns a confident meaningless ranking. Record
+it in `index_config` alongside the text backend so `assert_embedding_matches` covers it too.
+
+Text embeddings, `tsv`, `indexed_text` and `text` are **untouched**. The caption keeps every
+property it has today.
+
+### Scoring: two additive patterns, neither able to demote a caption hit
+
+**Pattern R — recall-only union (recommended first).** Run the existing pipeline unchanged.
+Separately, ANN the query's BiomedCLIP text vector against figure image vectors, and
+**append** any figure the text arm did not already retrieve, below everything it did.
+
+```
+final = text_ranked_results ++ [f for f in image_ranked if f not in text_ranked][:n]
+```
+
+By construction this cannot reorder, displace or demote anything the caption found. It can
+only add. Its measured effect on existing metrics is bounded to be ≥ 0 on recall and exactly
+0 on precision-at-1. **That is the strongest possible form of the constraint you asked for.**
+
+**Pattern B — monotone boost (second experiment).** Allow promotion but never demotion:
+
+```
+score' = rrf_score + α · max(0, cos(q_img, f_img) − τ)
+```
+
+The `max(0, ·)` is load-bearing: a figure with a poor image score keeps its caption-derived
+rank exactly. Only `α` and `τ` are new, and both default to "off".
+
+⚠️ **Do not add it as a third RRF arm.** That is the pattern D2 rejects: three equal-weight
+arms move lexical:dense from 1:1 to 1:2, and §4.14 records that `tri_fusion`'s gain is
+*still* confounded by exactly that, with its attribution controls unrun. A third arm would
+also violate the constraint here, because re-weighting demotes caption hits.
+
+### Kill switch and blast radius
+
+One config key, `image_arm: off | recall_only | boost`. At `off` the column is dead weight
+(34 MB) and no query path reads it. Nothing about caption behaviour is conditional on it.
+
+### Evaluation: the baseline is always the full caption system
+
+The question is **marginal value over captions**, never "BiomedCLIP vs captions". So:
+
+* baseline = current system **with** caption text indexed (which it already is, §1);
+* candidate = baseline + Pattern R;
+* **control = general CLIP** on identical figures, because round 2 and round 4 both turned
+  on a control and both reversed the reading;
+* pre-registered prediction: **figure `success@5` up ≥ 0.02; all text strata NULL.** A
+  non-null text stratum means Pattern R is not behaving additively and is a bug, not a win.
+
+⚠️ **Registered honestly: I expect this to be small or null.** Captions are already indexed
+at ~100% token coverage and already carry the gist; BiomedCLIP at 224×224 also carries only
+the gist. Two encoders of the same information is the `dual_dense` situation (§4.14), which
+was registered as predicted to fail for precisely this reason.
+
+**The one condition under which I would expect it to win** — and this reorders the stages —
+is *after* panel segmentation. Cropping a six-panel figure into six 224×224 inputs is ~6×
+the effective resolution per panel, and it is the only change that alters what BiomedCLIP
+can see. Registered as a hypothesis, not acted on: reordering on reasoning alone is what
+produced the caption error in §1.
+
 ## 4. Provenance: the constraint that shapes the schema
 
 §1 says a change that improves ranking and loses provenance is a regression. A figure has no

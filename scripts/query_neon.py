@@ -38,7 +38,7 @@ def main() -> int:
     with psycopg.connect(dsn, connect_timeout=20) as conn, conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM documents")
         n_docs = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM chunks")
+        cur.execute("SELECT count(*) FROM chunks WHERE kind = 'passage'")
         n_chunks = cur.fetchone()[0]
         print(f"store: {n_docs} documents, {n_chunks} passages\n")
         print(f"query: {query!r}\n")
@@ -52,7 +52,7 @@ def main() -> int:
                    ts_rank_cd(c.tsv, plainto_tsquery('english', %s)) AS rank
             FROM chunks c
             JOIN documents d ON d.doc_id = c.doc_id
-            WHERE c.tsv @@ plainto_tsquery('english', %s)
+            WHERE c.kind = 'passage' AND c.tsv @@ plainto_tsquery('english', %s)
             ORDER BY rank DESC
             LIMIT %s
             """,

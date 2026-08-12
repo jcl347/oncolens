@@ -70,11 +70,11 @@ def main() -> int:
         drop = cur.fetchone()[0]
         cur.execute(
             f"""SELECT count(*) FROM chunks c
-                WHERE EXISTS (SELECT 1 FROM documents d
+                WHERE c.kind = 'passage' AND EXISTS (SELECT 1 FROM documents d
                               WHERE d.doc_id = c.doc_id AND {drop_pred})""",
             {"min": args.min_chars})
         drop_chunks = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM chunks")
+        cur.execute("SELECT count(*) FROM chunks WHERE kind = 'passage'")
         total_chunks = cur.fetchone()[0]
 
         print(f"documents      {total:>8,}   keep {keep:>7,}   drop {drop:>7,}")
@@ -118,10 +118,11 @@ def main() -> int:
 
         cur.execute("SELECT count(*) FROM documents")
         now_docs = cur.fetchone()[0]
-        cur.execute("SELECT count(*) FROM chunks")
+        cur.execute("SELECT count(*) FROM chunks WHERE kind = 'passage'")
         now_chunks = cur.fetchone()[0]
         cur.execute("""SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY n) FROM (
-                         SELECT doc_id, count(*) n FROM chunks GROUP BY doc_id) t""")
+                         SELECT doc_id, count(*) n FROM chunks
+                          WHERE kind = 'passage' GROUP BY doc_id) t""")
         median = cur.fetchone()[0]
 
     print(f"\ndeleted {gone_docs:,} documents and {gone_chunks:,} passages")

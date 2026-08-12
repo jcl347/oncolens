@@ -127,6 +127,7 @@ def main() -> int:
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT chunk_id, COALESCE(indexed_text, text) FROM chunks "
+                        "WHERE kind = 'passage' "
                         "ORDER BY chunk_id")
             rows = cur.fetchall()
         if not rows:

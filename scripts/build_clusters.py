@@ -55,7 +55,8 @@ def load_documents() -> tuple[list[dict], dict[str, list[str]]]:
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT doc_id, title, year, descriptors, meta, "
-            "       (SELECT count(*) FROM chunks c WHERE c.doc_id = d.doc_id) "
+            "       (SELECT count(*) FROM chunks c WHERE c.doc_id = d.doc_id "
+            "        AND c.kind = 'passage') "
             "FROM documents d ORDER BY doc_id")
         docs, majors = [], {}
         for doc_id, title, year, descs, meta, n_chunks in cur.fetchall():
@@ -85,7 +86,7 @@ def document_vectors(doc_ids: list[str]) -> np.ndarray:
     dim = None
     acc: dict[int, list] = {}
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute("SELECT doc_id, embedding FROM chunks")
+        cur.execute("SELECT doc_id, embedding FROM chunks WHERE kind = 'passage'")
         for doc_id, emb in cur.fetchall():
             i = idx.get(doc_id)
             if i is None or emb is None:

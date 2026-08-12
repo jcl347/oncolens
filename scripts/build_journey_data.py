@@ -55,7 +55,7 @@ def live_corpus() -> dict:
         with psycopg.connect(dsn, connect_timeout=15) as conn, conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM documents")
             out["documents"] = cur.fetchone()[0]
-            cur.execute("SELECT count(*) FROM chunks")
+            cur.execute("SELECT count(*) FROM chunks WHERE kind = 'passage'")
             out["chunks"] = cur.fetchone()[0]
             cur.execute("SELECT count(*) FROM documents WHERE meta->>'pmcid' IS NOT NULL")
             out["with_pmcid"] = cur.fetchone()[0]
@@ -65,7 +65,7 @@ def live_corpus() -> dict:
             out["full_text"] = cur.fetchone()[0]
             cur.execute("SELECT pg_database_size(current_database())")
             out["db_bytes"] = cur.fetchone()[0]
-            cur.execute("SELECT sum(length(text)) FROM chunks")
+            cur.execute("SELECT sum(length(text)) FROM chunks WHERE kind = 'passage'")
             out["text_chars"] = cur.fetchone()[0] or 0
             cur.execute("SELECT count(DISTINCT d.doc_id) FROM documents d WHERE EXISTS ("
                         "SELECT 1 FROM unnest(d.descriptors) x WHERE lower(x) LIKE '%neoplas%' "
@@ -138,7 +138,7 @@ def build(now_iso: str) -> dict:
             metric("Documents indexed", live.get("documents", 0), provenance="live",
                    command="SELECT count(*) FROM documents"),
             metric("Retrievable passages", live.get("chunks", 0), provenance="live",
-                   command="SELECT count(*) FROM chunks"),
+                   command="SELECT count(*) FROM chunks WHERE kind='passage'"),
             # "With verbatim full text" was dropped once abstract-only records were pruned:
             # it now equals the document count exactly, so it reported nothing.
         ],

@@ -57,6 +57,7 @@ def load_chunks() -> list[dict]:
         # texts in order, and Postgres guarantees no order without it. See the same fix
         # in improve_loop.load_chunks.
         cur.execute("SELECT chunk_id, doc_id, COALESCE(indexed_text, text) FROM chunks "
+                    "WHERE kind = 'passage' "
                     "ORDER BY chunk_id")
         return [{"chunk_id": r[0], "doc_id": r[1], "text": r[2]} for r in cur.fetchall()]
 

@@ -45,7 +45,8 @@ missing_examples = []
 with psycopg.connect(dsn) as cx, cx.cursor() as cur:
     for f in sample:
         doc = by_pmc[re.sub(r"\D", "", f.stem)]
-        cur.execute("SELECT string_agg(text, ' ' ORDER BY ordinal) FROM chunks WHERE doc_id=%s",
+        cur.execute("SELECT string_agg(text, ' ' ORDER BY ordinal) FROM chunks "
+                    "WHERE doc_id=%s AND kind='passage'",
                     (doc,))
         row = cur.fetchone()
         body = norm(row[0] or "")

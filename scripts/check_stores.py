@@ -71,7 +71,7 @@ def main() -> int:
                 if docs and chunks:
                     cur.execute("SELECT count(*) FROM documents")
                     nd = cur.fetchone()[0]
-                    cur.execute("SELECT count(*) FROM chunks")
+                    cur.execute("SELECT count(*) FROM chunks WHERE kind = 'passage'")
                     nc = cur.fetchone()[0]
                     print(f"  rows           {nd} documents, {nc} passages")
                 else:

@@ -76,7 +76,8 @@ def sample_texts(n: int = 200) -> list[str]:
 
     dsn = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
     with psycopg.connect(dsn) as conn, conn.cursor() as cur:
-        cur.execute("SELECT COALESCE(indexed_text, text) FROM chunks LIMIT %s", (n,))
+        cur.execute("SELECT COALESCE(indexed_text, text) FROM chunks "
+                    "WHERE kind = 'passage' LIMIT %s", (n,))
         return [r[0] for r in cur.fetchall()]
 
 

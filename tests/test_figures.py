@@ -64,6 +64,53 @@ class TestFiguresAreExcludedFromRetrieval:
         assert "kind = 'passage'" in aspect_q
 
 
+class TestEveryConsumerOfChunksIsGuarded:
+    """The guard that was written for the serving path and NOT for the evaluation path.
+
+    This actually happened, minutes after the serving guard was written and tested. The
+    evaluation harness has its own SQL, so the first run after the figure ingest picked up
+    **190,399** rows instead of 180,850, began re-encoding the whole corpus because the new
+    rows have no embedding, and would have scored a candidate against a baseline that had
+    silently grown by 9,549 documents. It was killed before any verdict was recorded.
+
+    A per-file test rather than one assertion, because the failure mode is *a consumer
+    nobody remembered*, and eleven places read this table.
+    """
+
+    #: Files whose reads must be restricted to body passages. DELETE statements are
+    #: deliberately absent: removing a document SHOULD remove its figures too, and an
+    #: orphan figure is worse than a deleted one.
+    CONSUMERS = [
+        ("scripts/improve_loop.py", "the evaluation harness — this is the one that broke"),
+        ("scripts/bench_retrieval.py", "the retrieval benchmark corpus"),
+        ("scripts/build_clusters.py", "the cluster map; figure rows have no embedding"),
+        ("scripts/build_journey_data.py", "passage counts displayed on the site"),
+        ("scripts/build_strata.py", "the leakage-check sample"),
+        ("scripts/reembed_store.py", "would pay to embed rows nothing retrieves"),
+        ("scripts/query_neon.py", "the CLI must match what production serves"),
+        ("scripts/prune_abstract_only.py", "per-document counts drive pruning decisions"),
+    ]
+
+    @pytest.mark.parametrize("path,why", CONSUMERS)
+    def test_reads_are_restricted_to_passages(self, path, why):
+        src = (REPO / path).read_text(encoding="utf-8")
+        for i, line in enumerate(src.splitlines()):
+            if "FROM chunks" not in line:
+                continue
+            if re.search(r"\bDELETE\b", line, re.I):
+                continue
+            window = "\n".join(src.splitlines()[max(0, i - 2): i + 4])
+            assert "kind" in window, (
+                f"{path}:{i+1} reads chunks without a kind filter — {why}")
+
+    def test_the_harness_query_is_explicit(self):
+        """Named separately because it is the one that actually failed."""
+        src = (REPO / "scripts" / "improve_loop.py").read_text(encoding="utf-8")
+        assert "WHERE kind = 'passage' ORDER BY chunk_id" in src, (
+            "load_chunks must filter AND order: the filter keeps figures out of the "
+            "corpus, the ORDER BY keeps the embedding cache deterministic (§6.6)")
+
+
 class TestPaperResponseShape:
     """What /api/paper must emit for the reading page to render an image."""
 

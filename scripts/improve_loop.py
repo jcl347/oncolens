@@ -392,7 +392,19 @@ def load_chunks(*, with_embeddings: bool = True) -> tuple[list[dict], dict[str, 
         #
         # A cache that misses nondeterministically is worse than no cache: it looks like
         # it is working, so nobody checks.
-        cur.execute(f"SELECT {cols} FROM chunks ORDER BY chunk_id")
+        # kind='passage' IS ALSO LOAD-BEARING, and omitting it silently changed the corpus.
+        #
+        # Figure rows were added so a paper can be READ with its images, and the serving
+        # path excludes them in `neon_store.HYBRID_SEARCH_SQL`. That guard was written,
+        # tested — and applied to only ONE of the two systems that read this table. The
+        # evaluation harness has its own SQL, so the next run picked up 190,399 rows
+        # instead of 180,850, re-encoded the whole corpus because the new rows have no
+        # embedding, and would have measured a candidate against a baseline that had
+        # quietly grown by 9,549 documents.
+        #
+        # Exactly the §4.15 shape: a capability guarded on one side of an interface and
+        # not the other. Guarding the accessor is not guarding the data (§6.1).
+        cur.execute(f"SELECT {cols} FROM chunks WHERE kind = 'passage' ORDER BY chunk_id")
         rows = cur.fetchall()
     out = []
     for r in rows:
